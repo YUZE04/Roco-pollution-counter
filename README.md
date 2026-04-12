@@ -4,13 +4,33 @@
 A Python desktop counter tool for Roco Kingdom world pollution tracking.
 
 ## Features
-- OCR text recognitionOCR文本识别
-- Auto counting自动计数功能
-- Manual hotkey add and subtract手动热键加减功能
-- Compact floating window紧凑型浮动窗口
-- Transparency adjustment透明度调整
-- Daily statistics每日统计数据
-- Species statistics物种统计信息
+
+- OCR text recognition  
+  OCR文本识别
+
+- Auto counting  
+  自动计数功能
+
+- Manual hotkey add and subtract  
+  手动快捷键加减功能
+
+- Compact floating window  
+  紧凑型浮动窗口
+
+- Transparency adjustment  
+  透明度调整
+
+- Resolution switching  
+  分辨率切换功能
+
+- 150% scaling preset support  
+  150%缩放预设支持
+
+- Daily statistics  
+  每日统计数据
+
+- Species statistics  
+  物种统计信息
 
 ## Requirements 要求
 - Windows
