@@ -27,6 +27,6 @@ First public release.
 抖音号：conflicto834
 
 ## Run 运行
-python roco_kingdom_world_pollution_counter.py
+python roco_kingdom_world_pollution_counter v0.1.py
 
 
