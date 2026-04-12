@@ -1,5 +1,19 @@
 {
-  "version": "v0.3",
-  "notes": "增加分辨率切换功能；优化2560x1600与150%缩放适配；优化界面显示。",
-  "download_url": "https://github.com/YUZE04/-Roco-Kingdom-World-pollution-counter/releases"
+  "version": "v1.0",
+  "title": "污染计数器 v1.0 正式版",
+  "notes": [
+    "增加无边框悬浮窗功能",
+    "增加自定义顶部栏样式",
+    "支持锁定后整窗鼠标穿透",
+    "支持锁定后隐藏系统光标",
+    "优化主界面布局与提示显示",
+    "优化详情页 UI 对齐与布局",
+    "优化小窗布局，使界面更加紧凑",
+    "支持首次启动提示并引导修改分辨率",
+    "锁定状态下提示文本变绿高亮",
+    "默认热键调整为 7 / 8 / 9 / 0 / -"
+  ],
+  "download_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/latest",
+  "release_page": "https://github.com/YUZE04/Roco-pollution-counter/releases",
+  "force": false
 }
