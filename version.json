@@ -2,11 +2,7 @@
   "version": "v1.0.1",
   "title": "污染计数器 v1.0.1",
   "notes": [
-    "优化小窗布局，界面更加紧凑简洁",
-    "移除原有分块式设计，显示更清爽",
-    "扩大精灵统计总表显示区域",
-    "保留原有识别、计数、热键、设置等功能",
-    "修复部分显示调整不生效的问题",
+    "优化小窗布局，界面更加紧凑简洁"
   ],
   "download_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/latest",
   "release_page": "https://github.com/YUZE04/Roco-pollution-counter/releases",
