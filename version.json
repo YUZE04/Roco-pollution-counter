@@ -1,8 +1,8 @@
 {
-  "version": "v1.0.1",
-  "title": "污染计数器 v1.0.1",
+  "version": "v1.0.2",
+  "title": "污染计数器 v1.0.2",
   "notes": [
-    "优化小窗布局，界面更加紧凑简洁"
+    "修复1080p分辨率功能"
   ],
   "download_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/latest",
   "release_page": "https://github.com/YUZE04/Roco-pollution-counter/releases",
