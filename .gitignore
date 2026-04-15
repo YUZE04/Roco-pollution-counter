@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.log
+records/
+paddleocr_models/
+pollution_count.json
+ocr_capture_positions.json

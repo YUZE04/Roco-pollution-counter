@@ -1,0 +1,192 @@
+{
+  "middle_region": {
+    "left": 793,
+    "top": 146,
+    "width": 69,
+    "height": 44
+  },
+  "header_region": {
+    "left": 1594,
+    "top": 22,
+    "width": 279,
+    "height": 112
+  },
+  "name_in_header": {
+    "left": 74,
+    "top": 26,
+    "width": 153,
+    "height": 36
+  },
+  "base_resolution": "2560x1600_150缩放",
+  "active_resolution": "1920x1080",
+  "base_regions": {
+    "middle_region": {
+      "left": 1057,
+      "top": 195,
+      "width": 92,
+      "height": 59
+    },
+    "header_region": {
+      "left": 2125,
+      "top": 30,
+      "width": 372,
+      "height": 150
+    },
+    "name_in_header": {
+      "left": 99,
+      "top": 35,
+      "width": 204,
+      "height": 48
+    }
+  },
+  "resolution_presets": {
+    "1920x1080": {
+      "middle_region": {
+        "left": 793,
+        "top": 146,
+        "width": 69,
+        "height": 44
+      },
+      "header_region": {
+        "left": 1594,
+        "top": 22,
+        "width": 279,
+        "height": 112
+      },
+      "name_in_header": {
+        "left": 74,
+        "top": 26,
+        "width": 153,
+        "height": 36
+      }
+    },
+    "2560x1440": {
+      "middle_region": {
+        "left": 1057,
+        "top": 195,
+        "width": 92,
+        "height": 59
+      },
+      "header_region": {
+        "left": 2125,
+        "top": 30,
+        "width": 372,
+        "height": 150
+      },
+      "name_in_header": {
+        "left": 99,
+        "top": 35,
+        "width": 204,
+        "height": 48
+      }
+    },
+    "2560x1600_150缩放": {
+      "middle_region": {
+        "left": 1057,
+        "top": 195,
+        "width": 92,
+        "height": 59
+      },
+      "header_region": {
+        "left": 2125,
+        "top": 30,
+        "width": 372,
+        "height": 150
+      },
+      "name_in_header": {
+        "left": 99,
+        "top": 35,
+        "width": 204,
+        "height": 48
+      }
+    },
+    "1280x720": {
+      "middle_region": {
+        "left": 528,
+        "top": 98,
+        "width": 46,
+        "height": 30
+      },
+      "header_region": {
+        "left": 1062,
+        "top": 15,
+        "width": 186,
+        "height": 75
+      },
+      "name_in_header": {
+        "left": 50,
+        "top": 18,
+        "width": 102,
+        "height": 24
+      }
+    },
+    "3840x2160": {
+      "middle_region": {
+        "left": 1586,
+        "top": 292,
+        "width": 138,
+        "height": 88
+      },
+      "header_region": {
+        "left": 3188,
+        "top": 45,
+        "width": 558,
+        "height": 225
+      },
+      "name_in_header": {
+        "left": 148,
+        "top": 52,
+        "width": 306,
+        "height": 72
+      }
+    }
+  },
+  "cooldown_seconds": 2.0,
+  "scan_interval": 0.7,
+  "confirm_frames": 1,
+  "window": {
+    "x": 2236,
+    "y": 450,
+    "width": 360,
+    "height": 395
+  },
+  "compact_window": {
+    "width": 300,
+    "height": 400
+  },
+  "hotkeys": {
+    "add": "8",
+    "sub": "9",
+    "start": "7",
+    "pause": "0",
+    "lock": "-"
+  },
+  "unknown_species_name": "未识别",
+  "always_on_top": true,
+  "window_alpha": 1.0,
+  "paddleocr_model_dir": "paddleocr_models",
+  "middle_keyword": "力量",
+  "middle_fallback_keywords": [
+    "力量"
+  ],
+  "header_ocr_modes": [
+    [
+      4,
+      "binary"
+    ],
+    [
+      3,
+      "gray"
+    ]
+  ],
+  "name_read_delay": 0.0,
+  "drag_bar_height": 32,
+  "app_version": "v1.0",
+  "update_info_url": "https://raw.githubusercontent.com/YUZE04/Roco-pollution-counter/main/version.json",
+  "github_api_latest_url": "https://api.github.com/repos/YUZE04/Roco-pollution-counter/releases/latest",
+  "release_page_url": "https://github.com/YUZE04/Roco-pollution-counter",
+  "game_mode_no_activate": true,
+  "window_corner_placed_once": true,
+  "first_startup_tip_done": true,
+  "borderless_window": true
+}
