@@ -348,10 +348,10 @@ DEFAULT_CONFIG = {
     "header_ocr_modes": [[4, "binary"], [3, "gray"]],
     "name_read_delay": 0.0,
     "drag_bar_height": 32,
-    "app_version": "v1.0",
+    "app_version": "v1.1.0",
     "update_info_url": "https://raw.githubusercontent.com/YUZE04/Roco-pollution-counter/main/version.json",
     "github_api_latest_url": "https://api.github.com/repos/YUZE04/Roco-pollution-counter/releases/latest",
-    "release_page_url": "https://github.com/YUZE04/Roco-pollution-counter",
+    "release_page_url": "https://github.com/YUZE04/Roco-pollution-counter/tags",
     "game_mode_no_activate": True,
     "window_corner_placed_once": False,
     "first_startup_tip_done": False,
@@ -1642,7 +1642,7 @@ class App:
 
 
     def get_current_version(self):
-        return str(self.config_data.get("app_version", "v1.0"))
+        return str(self.config_data.get("app_version", "v1.1.0"))
 
     def compare_versions(self, current, latest):
         def parse(v):

@@ -1,0 +1,11 @@
+## requirements.txt 说明 / Description
+
+中文：
+这是项目依赖文件，用于安装程序运行所需的 Python 库。  
+安装命令：
+`pip install -r requirements.txt`
+
+English:
+This file lists the Python dependencies required to run the project.  
+Install command:
+`pip install -r requirements.txt`

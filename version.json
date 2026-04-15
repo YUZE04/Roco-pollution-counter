@@ -1,0 +1,13 @@
+{
+  "version": "v1.1.0",
+  "title": "污染计数器 v1.1.0",
+  "notes": [
+    "修复 PaddleOCR 在 CPU 环境下的兼容问题",
+    "优化紧凑悬浮窗布局、锁定交互与提示文案",
+    "增强分辨率预设适配，支持按当前分辨率自动推算区域",
+    "降低待机扫描时的空转 CPU 占用"
+  ],
+  "download_url": "https://github.com/YUZE04/Roco-pollution-counter/archive/refs/tags/v1.1.0.zip",
+  "release_page": "https://github.com/YUZE04/Roco-pollution-counter/tags",
+  "force": false
+}
