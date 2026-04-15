@@ -6,3 +6,7 @@ paddleocr_models/
 pollution_count.json
 ocr_capture_positions.json
 dist/
+build/
+_ocr_checks/
+_screen_debug/
+_tmp_slim_check/

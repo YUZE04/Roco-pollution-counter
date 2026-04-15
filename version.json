@@ -7,7 +7,7 @@
     "增强分辨率预设适配，支持按当前分辨率自动推算区域",
     "降低待机扫描时的空转 CPU 占用"
   ],
-  "download_url": "https://github.com/YUZE04/Roco-pollution-counter/archive/refs/tags/v1.1.0.zip",
-  "release_page": "https://github.com/YUZE04/Roco-pollution-counter/tags",
+  "download_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.1.0/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8_v1.1.0.zip",
+  "release_page": "https://github.com/YUZE04/Roco-pollution-counter/releases/tag/v1.1.0",
   "force": false
 }

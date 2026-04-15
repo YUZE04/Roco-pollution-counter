@@ -2,7 +2,7 @@
 
 一个用于洛克王国世界污染追踪的桌面计数工具。  
 A desktop counter tool for Roco Kingdom world pollution tracking.
-下载地址：https://github.com/YUZE04/Roco-pollution-counter/archive/refs/tags/v1.1.0.zip
+下载地址：https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.1.0/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8_v1.1.0.zip
 ---
 
 ## 简介 | Introduction
