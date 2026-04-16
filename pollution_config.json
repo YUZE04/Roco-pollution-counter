@@ -1,24 +1,24 @@
 {
   "middle_region": {
-    "left": 927,
-    "top": 356,
-    "width": 58,
-    "height": 33
+    "left": 1113,
+    "top": 242,
+    "width": 69,
+    "height": 44
   },
   "header_region": {
-    "left": 1594,
-    "top": 263,
-    "width": 232,
-    "height": 84
+    "left": 1914,
+    "top": 118,
+    "width": 279,
+    "height": 112
   },
   "name_in_header": {
-    "left": 62,
-    "top": 20,
-    "width": 128,
-    "height": 27
+    "left": 74,
+    "top": 26,
+    "width": 153,
+    "height": 36
   },
   "base_resolution": "2560x1600_150缩放",
-  "active_resolution": "1600x900",
+  "active_resolution": "1920x1200",
   "base_regions": {
     "middle_region": {
       "left": 1057,
@@ -190,13 +190,13 @@
   "first_startup_tip_done": true,
   "borderless_window": true,
   "window_offset": {
-    "x": 266,
-    "y": 246,
-    "w": 1600,
-    "h": 900
+    "x": 320,
+    "y": 96,
+    "w": 1920,
+    "h": 1200
   },
   "window_client_size": {
-    "w": 1600,
-    "h": 900
+    "w": 1920,
+    "h": 1200
   }
 }

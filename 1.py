@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import types
+import yaml
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 import time
 import threading
@@ -12,6 +13,7 @@ import numpy as np
 import mss
 import keyboard
 from pathlib import Path
+import tempfile
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import scrolledtext
@@ -22,19 +24,158 @@ import urllib.error
 import ctypes
 
 APP_DIR = Path(__file__).resolve().parent
+MEIPASS_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)).resolve()
 RUNTIME_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_DIR
-os.environ.setdefault("PADDLEOCR_HOME", str(APP_DIR / "paddleocr_models"))
+DATA_DIR = RUNTIME_DIR
 OCR_DEBUG_LOG = RUNTIME_DIR / "ocr_debug.log"
+OCR_DEBUG_CAPTURE_DIR = RUNTIME_DIR / "ocr_debug_captures"
 _DLL_DIR_HANDLES = []
+_DEBUG_LOG_THROTTLE = {}
+_DEBUG_CAPTURE_THROTTLE = {}
+_PADDLEX_OCR_CONFIG = {
+    "pipeline_name": "OCR",
+    "text_type": "general",
+    "use_doc_preprocessor": True,
+    "use_textline_orientation": True,
+    "SubPipelines": {
+        "DocPreprocessor": {
+            "pipeline_name": "doc_preprocessor",
+            "use_doc_orientation_classify": True,
+            "use_doc_unwarping": True,
+            "SubModules": {
+                "DocOrientationClassify": {
+                    "module_name": "doc_text_orientation",
+                    "model_name": "PP-LCNet_x1_0_doc_ori",
+                    "model_dir": None,
+                },
+                "DocUnwarping": {
+                    "module_name": "image_unwarping",
+                    "model_name": "UVDoc",
+                    "model_dir": None,
+                },
+            },
+        }
+    },
+    "SubModules": {
+        "TextDetection": {
+            "module_name": "text_detection",
+            "model_name": "PP-OCRv5_server_det",
+            "model_dir": None,
+            "limit_side_len": 64,
+            "limit_type": "min",
+            "max_side_limit": 4000,
+            "thresh": 0.3,
+            "box_thresh": 0.6,
+            "unclip_ratio": 1.5,
+        },
+        "TextLineOrientation": {
+            "module_name": "textline_orientation",
+            "model_name": "PP-LCNet_x1_0_textline_ori",
+            "model_dir": None,
+            "batch_size": 6,
+        },
+        "TextRecognition": {
+            "module_name": "text_recognition",
+            "model_name": "PP-OCRv5_server_rec",
+            "model_dir": None,
+            "batch_size": 6,
+            "score_thresh": 0.0,
+        },
+    },
+}
 
 
 def _debug_log(message):
-    try:
-        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        with OCR_DEBUG_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(f"[{stamp}] {message}\n")
-    except Exception:
-        pass
+    return
+
+
+def _debug_log_throttled(key, message, min_interval=2.0):
+    now = time.time()
+    last = _DEBUG_LOG_THROTTLE.get(key, 0.0)
+    if now - last < float(min_interval):
+        return
+    _DEBUG_LOG_THROTTLE[key] = now
+    _debug_log(message)
+
+
+def _summarize_ocr_results(results, limit=6):
+    if not results:
+        return "无结果"
+    items = []
+    for item in results[:limit]:
+        text = normalize_text(item.get("text", "")) if isinstance(item, dict) else str(item)
+        conf = 0.0
+        if isinstance(item, dict):
+            try:
+                conf = float(item.get("confidence", 0.0))
+            except Exception:
+                conf = 0.0
+        items.append(f"{text or '<空>'}:{conf:.2f}")
+    if len(results) > limit:
+        items.append(f"...共{len(results)}条")
+    return " | ".join(items)
+
+
+def _save_debug_image(tag, image, min_interval=2.0):
+    return
+
+
+def _ensure_runtime_import_paths():
+    for candidate in (
+        RUNTIME_DIR,
+        RUNTIME_DIR / "lib",
+        RUNTIME_DIR / "_internal",
+        MEIPASS_DIR,
+        MEIPASS_DIR / "lib",
+        MEIPASS_DIR / "_internal",
+    ):
+        try:
+            if candidate.is_dir():
+                candidate_str = str(candidate)
+                if candidate_str not in sys.path:
+                    sys.path.insert(0, candidate_str)
+        except Exception:
+            pass
+
+
+_ensure_runtime_import_paths()
+
+
+def _iter_resource_roots():
+    seen = set()
+    candidates = [
+        RUNTIME_DIR,
+        RUNTIME_DIR / "_internal",
+        APP_DIR,
+        APP_DIR / "_internal",
+        MEIPASS_DIR,
+        MEIPASS_DIR / "_internal",
+        Path.cwd(),
+    ]
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = Path(candidate)
+        key = str(resolved).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        yield resolved
+
+
+def _resolve_resource_path(raw_path):
+    path = Path(str(raw_path).strip()).expanduser()
+    if path.is_absolute():
+        return path
+    for root in _iter_resource_roots():
+        candidate = root / path
+        if candidate.exists():
+            return candidate
+    return RUNTIME_DIR / path
+
+
+os.environ.setdefault("PADDLEOCR_HOME", str(_resolve_resource_path("paddleocr_models")))
 
 
 def _install_paddlex_official_models_stub():
@@ -53,7 +194,6 @@ def _install_paddlex_official_models_stub():
     stub_module.official_models = _OfflineOfficialModels()
     stub_module.__all__ = ["official_models"]
     sys.modules[module_name] = stub_module
-    _debug_log("installed paddlex official_models stub")
     return True
 
 
@@ -82,7 +222,6 @@ def _patch_paddleocr_cpu_inference():
     """打包环境下避免提前导入 paddlex，直接锁定 CPU 所需环境变量。"""
     os.environ["FLAGS_enable_pir_api"] = "0"
     os.environ.setdefault("FLAGS_json_format_model", "0")
-    _debug_log("patch_paddleocr_cpu_inference: env only")
     return False
 
 
@@ -91,20 +230,24 @@ def _add_paddle_dll_search_paths():
     try:
         import importlib.util
     except Exception as e:
-        _debug_log(f"add_paddle_dll_search_paths: skipped importlib: {e!r}")
         return False
 
     candidate_dirs = []
-    frozen_internal = APP_DIR / "_internal" / "paddle" / "libs"
-    if frozen_internal.is_dir():
-        candidate_dirs.append(frozen_internal)
+    for root in _iter_resource_roots():
+        for rel_path in (
+            Path("paddle") / "libs",
+            Path("_internal") / "paddle" / "libs",
+        ):
+            candidate = root / rel_path
+            if candidate.is_dir():
+                candidate_dirs.append(candidate)
 
     try:
         paddle_spec = importlib.util.find_spec("paddle")
         if paddle_spec and paddle_spec.origin:
             candidate_dirs.append(Path(paddle_spec.origin).resolve().parent / "libs")
     except Exception as e:
-        _debug_log(f"add_paddle_dll_search_paths: paddle spec lookup failed: {e!r}")
+        pass
 
     added = False
     for dll_dir in candidate_dirs:
@@ -119,8 +262,7 @@ def _add_paddle_dll_search_paths():
                 handle = os.add_dll_directory(dll_dir_str)
                 _DLL_DIR_HANDLES.append(handle)
         except Exception as e:
-            _debug_log(f"add_paddle_dll_search_paths: add_dll_directory failed {dll_dir_str}: {e!r}")
-        _debug_log(f"add_paddle_dll_search_paths: added {dll_dir_str}")
+            pass
         added = True
     return added
 
@@ -132,7 +274,6 @@ def _patch_paddlex_ocr_core_dependency_check():
         import cv2
         import paddlex.utils.deps as paddlex_deps
     except Exception as e:
-        _debug_log(f"patch_paddlex_ocr_core_dependency_check: skipped: {e!r}")
         return False
 
     if getattr(paddlex_deps, "_pollution_counter_ocr_core_patch", False):
@@ -153,8 +294,16 @@ def _patch_paddlex_ocr_core_dependency_check():
         if result:
             return True
         for module_name in import_names.get(dep, ()):
-            if importlib.util.find_spec(module_name) is not None:
+            try:
+                if importlib.util.find_spec(module_name) is not None:
+                    return True
+            except Exception:
+                pass
+            try:
+                importlib.import_module(module_name)
                 return True
+            except Exception:
+                pass
         return False
 
     original_is_extra_available = paddlex_deps.is_extra_available
@@ -175,8 +324,6 @@ def _patch_paddlex_ocr_core_dependency_check():
     except Exception:
         pass
     paddlex_deps._pollution_counter_ocr_core_patch = True
-    _debug_log("patch_paddlex_ocr_core_dependency_check: installed")
-
     for module_name in (
         "paddlex.inference.common.reader.image_reader",
         "paddlex.inference.pipelines.components.common.crop_image_regions",
@@ -192,11 +339,40 @@ def _patch_paddlex_ocr_core_dependency_check():
             module = __import__(module_name, fromlist=["*"])
             if getattr(module, "cv2", None) is None:
                 module.cv2 = cv2
-                _debug_log(f"patch_paddlex_ocr_core_dependency_check: bound cv2 -> {module_name}")
         except Exception as e:
-            _debug_log(f"patch_paddlex_ocr_core_dependency_check: module patch skipped {module_name}: {e!r}")
+            pass
 
     return True
+
+
+def _ensure_paddlex_ocr_pipeline_config():
+    """为 PaddleOCR 3.x 提供 OCR 配置，兼容单文件打包后缺失的管线配置。"""
+    try:
+        import copy
+        import paddlex.inference.pipelines as paddlex_pipelines
+        import paddlex.inference as paddlex_inference
+        import paddleocr._pipelines.base as paddleocr_base
+    except Exception:
+        return None
+
+    def _patched_load_pipeline_config(pipeline: str):
+        if str(pipeline).strip().lower() == "ocr":
+            return copy.deepcopy(_PADDLEX_OCR_CONFIG)
+        original = getattr(_patched_load_pipeline_config, "_original", None)
+        if callable(original):
+            return original(pipeline)
+        raise Exception(
+            f"The pipeline ({pipeline}) does not exist! Please use a pipeline name or a config file path!"
+        )
+
+    if not getattr(paddlex_inference, "_pollution_counter_ocr_config_patch", False):
+        _patched_load_pipeline_config._original = getattr(paddlex_inference, "load_pipeline_config", None)
+        paddlex_inference.load_pipeline_config = _patched_load_pipeline_config
+        paddlex_pipelines.load_pipeline_config = _patched_load_pipeline_config
+        paddleocr_base.load_pipeline_config = _patched_load_pipeline_config
+        paddlex_inference._pollution_counter_ocr_config_patch = True
+
+    return copy.deepcopy(_PADDLEX_OCR_CONFIG)
 
 
 def _scale_region_pack(region_pack, scale_x, scale_y):
@@ -237,15 +413,15 @@ try:
 except ImportError:
     _PIL_UI = False
 
-SAVE_FILE = Path("pollution_count.json")
-CONFIG_FILE = Path("pollution_config.json")
-OCR_POSITION_FILE = Path("ocr_capture_positions.json")
-RECORD_DIR = Path("records")
+SAVE_FILE = DATA_DIR / "pollution_count.json"
+CONFIG_FILE = DATA_DIR / "pollution_config.json"
+OCR_POSITION_FILE = DATA_DIR / "ocr_capture_positions.json"
+RECORD_DIR = DATA_DIR / "records"
 RECORD_JSONL = RECORD_DIR / "shiny_records.jsonl"
 RECORD_CSV = RECORD_DIR / "shiny_records.csv"
 TODAY_ARCHIVE_JSONL = RECORD_DIR / "today_cleared_archive.jsonl"
 TODAY_ARCHIVE_CSV = RECORD_DIR / "today_cleared_archive.csv"
-ICON_FILE = Path(__file__).with_name("roco_counter_icon.ico")
+ICON_FILE = _resolve_resource_path("roco_counter_icon.ico")
 
 # 全局 UI：微软雅黑 + 圆角按钮（浅灰胶囊参考常见现代控件）
 UI_FONT = ("Microsoft YaHei", 10)
@@ -424,9 +600,13 @@ def ensure_run_as_administrator():
     except Exception:
         return True
     try:
-        script = os.path.abspath(__file__)
-        params = f'"{script}"'
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+        if getattr(sys, "frozen", False):
+            executable = sys.executable
+            params = ""
+        else:
+            executable = sys.executable
+            params = f'"{os.path.abspath(__file__)}"'
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", executable, params, None, 1)
     except Exception:
         try:
             ctypes.windll.user32.MessageBoxW(
@@ -465,6 +645,12 @@ DEFAULT_CONFIG = {
     "paddleocr_model_dir": "paddleocr_models",
     "middle_keyword": "力量",
     "middle_fallback_keywords": ["力量"],
+    "middle_ocr_modes": [[3, "binary"], [3, "gray"], [4, "binary"], [3, "clahe"], [2, "gray"]],
+    "middle_bright_threshold": 170,
+    "middle_white_pixels_threshold": 45,
+    "middle_bright_streak_required": 1,
+    "middle_partial_confidence_threshold": 0.45,
+    "middle_min_char_match_ratio": 0.5,
     "header_ocr_modes": [[4, "binary"], [3, "gray"]],
     "name_read_delay": 0.0,
     "drag_bar_height": 32,
@@ -597,10 +783,7 @@ def contains_keyword_fuzzy(text, keyword):
 
 
 def _resolve_app_path(raw_path):
-    path = Path(str(raw_path).strip()).expanduser()
-    if not path.is_absolute():
-        path = APP_DIR / path
-    return path
+    return _resolve_resource_path(raw_path)
 
 
 def _has_paddle_model_files(path, required_files):
@@ -621,6 +804,10 @@ def _find_paddle_model_dir(root, preferred_rel_paths, required_files):
                 if _has_paddle_model_files(candidate, required_files):
                     return candidate
     return None
+
+
+def _format_resource_roots():
+    return " | ".join(str(path) for path in _iter_resource_roots())
 
 
 class LocalPaddleOCRReader:
@@ -644,7 +831,20 @@ class LocalPaddleOCRReader:
                 _patch_paddleocr_cpu_inference()
                 _add_paddle_dll_search_paths()
                 _patch_paddlex_ocr_core_dependency_check()
+                _ensure_paddlex_ocr_pipeline_config()
                 from paddleocr import PaddleOCR
+                try:
+                    import pyclipper as _pyclipper_mod
+                    for _mod_name in (
+                        "paddlex.inference.models.text_detection.processors",
+                        "paddleocr.inference.models.text_detection.processors",
+                    ):
+                        _mod = sys.modules.get(_mod_name)
+                        if _mod is not None and not hasattr(_mod, "pyclipper"):
+                            _mod.pyclipper = _pyclipper_mod
+                            _debug_log(f"ensure_loaded: injected pyclipper into {_mod_name}")
+                except Exception as _e:
+                    _debug_log(f"ensure_loaded: pyclipper injection failed: {_e!r}")
                 import logging
                 import warnings
                 logging.getLogger("ppocr").setLevel(logging.ERROR)
@@ -674,12 +874,15 @@ class LocalPaddleOCRReader:
                     missing.append("rec")
                 if missing:
                     raise FileNotFoundError(
-                        f"本地 PaddleOCR 模型不完整：{', '.join(missing)}，请确认 {model_root} 下的离线模型文件已解压。"
+                        "本地 PaddleOCR 模型不完整："
+                        f"{', '.join(missing)}。"
+                        f"\n当前模型根目录：{model_root}"
+                        f"\n已搜索资源目录：{_format_resource_roots()}"
+                        "\n请把 paddleocr_models 放到 exe 同目录，或在配置里填写绝对路径。"
                     )
                 _debug_log(
-                    f"ensure_loaded: models det={det_model_dir} rec={rec_model_dir} cls={cls_model_dir}"
+                    f"ensure_loaded: model_root={model_root}; det={det_model_dir}; rec={rec_model_dir}; cls={cls_model_dir}"
                 )
-
                 init_kwargs = dict(
                     device="cpu",
                     enable_hpi=False,
@@ -770,6 +973,11 @@ class LocalPaddleOCRReader:
             result = self.reader.predict(processed)
             ocr_results = result[0] if result and result[0] is not None else []
         except Exception as e:
+            _debug_log_throttled(
+                "ocr_predict_exception",
+                f"ocr_region predict exception: scale={scale}, mode={preprocess_mode}, err={e!r}",
+                min_interval=1.0,
+            )
             return [], str(e)
 
         parsed = []
@@ -885,32 +1093,60 @@ class LocalPaddleOCRReader:
         }
     def read_middle_trigger(self, screen_bgr):
         cfg = self.config_getter()
-        results, err = self.ocr_region(
-            image=screen_bgr,
-            region=cfg["middle_region"],
-            scale=2,
-            preprocess_mode="gray",
+        all_results = []
+        err_msgs = []
+        mode_list = cfg.get(
+            "middle_ocr_modes",
+            DEFAULT_CONFIG.get(
+                "middle_ocr_modes",
+                [[3, "binary"], [3, "gray"], [4, "binary"], [3, "clahe"], [2, "gray"]],
+            ),
         )
-        if err:
-            return False, "", 0.0, err
+        for item in mode_list:
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                continue
+            scale, mode = item
+            results, err = self.ocr_region(
+                image=screen_bgr,
+                region=cfg["middle_region"],
+                scale=scale,
+                preprocess_mode=mode,
+            )
+            if err:
+                err_msgs.append(err)
+            all_results.extend(results)
 
-        matched = [item for item in results if contains_keyword_fuzzy(item["text"], cfg["middle_keyword"])]
-        if not matched:
-            fallback_keywords = cfg.get("middle_fallback_keywords", [])
-            for item in results:
-                t = normalize_text(item["text"])
-                if any(k in t for k in fallback_keywords):
-                    matched.append(item)
+        keyword = normalize_text(cfg.get("middle_keyword", "力量"))
+        fallback_keywords = [normalize_text(x) for x in cfg.get("middle_fallback_keywords", ["力量"])]
+        partial_conf_threshold = max(
+            0.0, min(1.0, float(cfg.get("middle_partial_confidence_threshold", 0.45)))
+        )
+        min_char_match_ratio = max(0.0, min(1.0, float(cfg.get("middle_min_char_match_ratio", 0.5))))
+
+        matched = []
+        for item in all_results:
+            t = normalize_text(item.get("text", ""))
+            confidence = float(item.get("confidence", 0.0))
+            if not t:
+                continue
+            matched_chars = sum(1 for ch in keyword if ch in t) if keyword else 0
+            char_match_ratio = matched_chars / max(len(keyword), 1) if keyword else 0.0
+            if keyword and contains_keyword_fuzzy(t, keyword):
+                matched.append(item)
+            elif keyword and char_match_ratio >= min_char_match_ratio and confidence >= partial_conf_threshold:
+                matched.append(item)
+            elif any(k and k in t for k in fallback_keywords):
+                matched.append(item)
 
         if matched:
             best = sorted(matched, key=lambda x: x["confidence"], reverse=True)[0]
             return True, normalize_text(best["text"]), float(best["confidence"]), ""
 
-        if results:
-            best = sorted(results, key=lambda x: x["confidence"], reverse=True)[0]
+        if all_results:
+            best = sorted(all_results, key=lambda x: x["confidence"], reverse=True)[0]
             return False, normalize_text(best["text"]), float(best["confidence"]), ""
 
-        return False, "", 0.0, ""
+        return False, "", 0.0, "; ".join(err_msgs[:2])
 
     def read_header_name(self, screen_bgr):
         abs_region = self.get_absolute_name_region()
@@ -1357,6 +1593,18 @@ class App:
                 cfg["name_in_header"]["top"] = max(0, int(cfg["name_in_header"].get("top", 35)))
                 cfg.setdefault("window_corner_placed_once", True)
                 cfg.setdefault("first_startup_tip_done", True)
+                cfg.setdefault(
+                    "middle_ocr_modes",
+                    DEFAULT_CONFIG.get("middle_ocr_modes", [[3, "binary"], [3, "gray"], [4, "binary"], [3, "clahe"], [2, "gray"]]),
+                )
+                cfg.setdefault("middle_bright_threshold", DEFAULT_CONFIG.get("middle_bright_threshold", 170))
+                cfg.setdefault("middle_white_pixels_threshold", DEFAULT_CONFIG.get("middle_white_pixels_threshold", 45))
+                cfg.setdefault("middle_bright_streak_required", DEFAULT_CONFIG.get("middle_bright_streak_required", 1))
+                cfg.setdefault(
+                    "middle_partial_confidence_threshold",
+                    DEFAULT_CONFIG.get("middle_partial_confidence_threshold", 0.45),
+                )
+                cfg.setdefault("middle_min_char_match_ratio", DEFAULT_CONFIG.get("middle_min_char_match_ratio", 0.5))
                 cfg.setdefault("header_ocr_modes", DEFAULT_CONFIG.get("header_ocr_modes", [[4, "binary"], [3, "gray"]]))
                 cfg.setdefault("github_api_latest_url", DEFAULT_CONFIG.get("github_api_latest_url", ""))
                 legacy_paddleocr_model_dir = cfg.pop("easyocr_model_dir", None)
@@ -2732,24 +2980,8 @@ class App:
             return False
 
     def save_ocr_capture_positions(self, note=""):
-        """保存当前 OCR 截图位置，便于后续调试和对齐。"""
-        try:
-            cfg = self.config_data or {}
-            payload = {
-                "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "note": str(note or ""),
-                "active_resolution": cfg.get("active_resolution", ""),
-                "window_offset": cfg.get("window_offset", {}),
-                "window_client_size": cfg.get("window_client_size", {}),
-                "middle_region": cfg.get("middle_region", {}),
-                "header_region": cfg.get("header_region", {}),
-                "name_in_header": cfg.get("name_in_header", {}),
-                "absolute_name_region": self.ocr.get_absolute_name_region(),
-            }
-            OCR_POSITION_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            return True
-        except Exception:
-            return False
+        """已停用：不再生成 OCR 坐标快照文件。"""
+        return False
 
     def apply_alpha(self, *_args):
         value = self._clamp_alpha(self.alpha_var.get())
@@ -3655,6 +3887,7 @@ class App:
         self.refresh_runtime_status()
         self.status_var.set("OCR未就绪")
         self.set_compact_hint("提示: OCR未就绪")
+        _debug_log(f"_monitor_start_failed: {err_text}")
         messagebox.showerror(
             "OCR未就绪",
             f"PaddleOCR 不可用。\n\n{err_text}\n\n调试日志：{OCR_DEBUG_LOG}",
@@ -3766,6 +3999,15 @@ class App:
 
                     cfg = self.config_data
                     middle_region = dict(cfg["middle_region"])
+                    bright_threshold = max(80, min(245, int(cfg.get("middle_bright_threshold", 170))))
+                    white_pixels_threshold = max(1, int(cfg.get("middle_white_pixels_threshold", 45)))
+                    bright_streak_required = max(0, int(cfg.get("middle_bright_streak_required", 1)))
+                    partial_conf_threshold = max(
+                        0.0, min(1.0, float(cfg.get("middle_partial_confidence_threshold", 0.45)))
+                    )
+                    min_char_match_ratio = max(
+                        0.0, min(1.0, float(cfg.get("middle_min_char_match_ratio", 0.5)))
+                    )
 
                     middle_frame = np.array(sct.grab(middle_region))
                     middle_gray = cv2.cvtColor(middle_frame, cv2.COLOR_BGRA2GRAY)
@@ -3778,27 +4020,41 @@ class App:
                     prev_middle_thumb = thumb
 
                     blurred = cv2.GaussianBlur(middle_gray, (3, 3), 0)
-                    _, binary = cv2.threshold(blurred, 185, 255, cv2.THRESH_BINARY)
+                    _, binary = cv2.threshold(blurred, bright_threshold, 255, cv2.THRESH_BINARY)
                     white_pixels = int(cv2.countNonZero(binary))
 
-                    if white_pixels >= 120:
+                    if white_pixels >= white_pixels_threshold:
                         bright_candidate_streak += 1
                     else:
-                        bright_candidate_streak = 0
+                        bright_candidate_streak = max(0, bright_candidate_streak - 1)
 
-                    run_middle_ocr = False
-                    if bright_candidate_streak >= 2:
-                        run_middle_ocr = True
+                    run_middle_ocr = (
+                        bright_streak_required <= 0
+                        or white_pixels >= white_pixels_threshold
+                        or bright_candidate_streak >= bright_streak_required
+                    )
 
                     triggered = False
                     middle_text = ""
 
                     if run_middle_ocr:
                         middle_bgr = cv2.cvtColor(middle_frame, cv2.COLOR_BGRA2BGR)
+                        if white_pixels >= white_pixels_threshold:
+                            _save_debug_image("middle_candidate", middle_bgr, min_interval=1.5)
                         all_middle_results = []
                         err_msg = ""
+                        mode_list = cfg.get(
+                            "middle_ocr_modes",
+                            DEFAULT_CONFIG.get(
+                                "middle_ocr_modes",
+                                [[3, "binary"], [3, "gray"], [4, "binary"], [3, "clahe"], [2, "gray"]],
+                            ),
+                        )
 
-                        for scale, mode in [(3, "binary"), (3, "gray")]:
+                        for item in mode_list:
+                            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                                continue
+                            scale, mode = item
                             results, err = self.ocr.ocr_region(
                                 image=middle_bgr,
                                 region={
@@ -3821,29 +4077,56 @@ class App:
                         best_conf = 0.0
                         for item in all_middle_results:
                             t = normalize_text(item.get("text", ""))
+                            confidence = float(item.get("confidence", 0.0))
                             if not t:
                                 continue
-                            if keyword and keyword in t:
+                            matched_chars = sum(1 for ch in keyword if ch in t) if keyword else 0
+                            char_match_ratio = matched_chars / max(len(keyword), 1) if keyword else 0.0
+
+                            if keyword and contains_keyword_fuzzy(t, keyword):
                                 triggered = True
-                                if float(item.get("confidence", 0.0)) >= best_conf:
+                                if confidence >= best_conf:
                                     best_text = t
-                                    best_conf = float(item.get("confidence", 0.0))
-                            elif len(keyword) >= 2 and any(ch in t for ch in keyword) and float(item.get("confidence", 0.0)) >= 0.85:
+                                    best_conf = confidence
+                            elif (
+                                keyword
+                                and char_match_ratio >= min_char_match_ratio
+                                and confidence >= partial_conf_threshold
+                            ):
                                 triggered = True
-                                if float(item.get("confidence", 0.0)) >= best_conf:
+                                if confidence >= best_conf:
                                     best_text = t
-                                    best_conf = float(item.get("confidence", 0.0))
+                                    best_conf = confidence
                             elif any(k and k in t for k in fallback_keywords):
                                 triggered = True
-                                if float(item.get("confidence", 0.0)) >= best_conf:
+                                if confidence >= best_conf:
                                     best_text = t
-                                    best_conf = float(item.get("confidence", 0.0))
+                                    best_conf = confidence
 
                         if triggered:
                             middle_text = best_text or keyword or "力量"
+                            _debug_log(
+                                "middle_ocr triggered: "
+                                f"white_pixels={white_pixels}/{white_pixels_threshold}, "
+                                f"best={middle_text}, results={_summarize_ocr_results(all_middle_results)}"
+                            )
                             self.set_status_async(f"命中候选: {middle_text[:18]}", min_interval=0.6)
                             bright_candidate_streak = 0
+                        elif all_middle_results:
+                            _debug_log_throttled(
+                                "middle_ocr_candidates",
+                                "middle_ocr candidates: "
+                                f"white_pixels={white_pixels}/{white_pixels_threshold}, "
+                                f"results={_summarize_ocr_results(all_middle_results)}",
+                                min_interval=2.0,
+                            )
                         elif err_msg:
+                            _debug_log_throttled(
+                                "middle_ocr_error",
+                                "middle_ocr error: "
+                                f"white_pixels={white_pixels}/{white_pixels_threshold}, err={err_msg}",
+                                min_interval=1.5,
+                            )
                             self.set_status_async(f"识别出错: {err_msg[:24]}", min_interval=1.2)
 
                     now = time.time()
@@ -3874,8 +4157,15 @@ class App:
 
                             all_results = []
                             err_msgs = []
-
-                            for scale, mode in [(3, "binary"), (3, "gray")]:
+                            mode_list = cfg.get(
+                                "header_ocr_modes",
+                                DEFAULT_CONFIG.get("header_ocr_modes", [[4, "binary"], [3, "gray"]]),
+                            )
+                            _save_debug_image("name_candidate", name_bgr, min_interval=1.5)
+                            for item in mode_list:
+                                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                                    continue
+                                scale, mode = item
                                 results, name_err = self.ocr.ocr_region(
                                     image=name_bgr,
                                     region=local_name_region,
@@ -3914,10 +4204,27 @@ class App:
                                     reverse=True,
                                 )
                                 clean_name = clean_pet_name(ranked[0][0])
+                                _debug_log(
+                                    "name_ocr chosen: "
+                                    f"middle={middle_text}, chosen={clean_name}, "
+                                    f"results={_summarize_ocr_results(all_results)}"
+                                )
                             elif err_msgs:
+                                _debug_log_throttled(
+                                    "name_ocr_error",
+                                    f"name_ocr error: middle={middle_text}, err={err_msgs[0]}",
+                                    min_interval=1.5,
+                                )
                                 self.set_status_async(f"名称识别出错: {err_msgs[0][:24]}", min_interval=1.2)
+                            else:
+                                _debug_log_throttled(
+                                    "name_ocr_empty",
+                                    f"name_ocr empty: middle={middle_text}, capture={local_name_region}",
+                                    min_interval=1.5,
+                                )
 
                         except Exception as name_ex:
+                            _debug_log(f"name_ocr exception: middle={middle_text}, err={name_ex!r}")
                             self.set_status_async(f"名字识别失败: {str(name_ex)[:24]}", min_interval=1.2)
 
                         self._run_on_ui(self.count_detected_event, clean_name, clean_name, middle_text)
