@@ -633,7 +633,7 @@ DEFAULT_CONFIG = {
         "name_in_header": {"left": 99, "top": 35, "width": 204, "height": 48}
     },
     "resolution_presets": _build_builtin_resolution_presets(),
-    "cooldown_seconds": 2.0,
+    "cooldown_seconds": 8.0,
     "scan_interval": 0.7,
     "confirm_frames": 1,
     "window": {"x": 60, "y": 60, "width": 560, "height": 620},
@@ -654,7 +654,7 @@ DEFAULT_CONFIG = {
     "header_ocr_modes": [[4, "binary"], [3, "gray"]],
     "name_read_delay": 0.0,
     "drag_bar_height": 32,
-    "app_version": "v1.1.0",
+    "app_version": "v1.1.1",
     "update_info_url": "https://raw.githubusercontent.com/YUZE04/Roco-pollution-counter/main/version.json",
     "github_api_latest_url": "https://api.github.com/repos/YUZE04/Roco-pollution-counter/releases/latest",
     "release_page_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/latest",
@@ -810,6 +810,41 @@ def _format_resource_roots():
     return " | ".join(str(path) for path in _iter_resource_roots())
 
 
+def _path_is_ascii(p):
+    try:
+        str(p).encode("ascii")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
+_SAFE_MODEL_CACHE = {}
+
+
+def _ensure_ascii_model_dir(model_dir):
+    """PaddlePaddle C++ 引擎的 std::ifstream 在某些 Windows 上不支持非 ASCII 路径，
+    遇到中文路径时自动把模型文件复制到纯 ASCII 临时目录。"""
+    if model_dir is None:
+        return model_dir
+    model_dir = Path(model_dir)
+    if _path_is_ascii(model_dir):
+        return model_dir
+    key = str(model_dir)
+    if key in _SAFE_MODEL_CACHE:
+        cached = _SAFE_MODEL_CACHE[key]
+        if cached.exists():
+            return cached
+    import shutil, tempfile
+    safe_root = Path(tempfile.gettempdir()) / "pdocr_models"
+    safe_root.mkdir(parents=True, exist_ok=True)
+    dest = safe_root / model_dir.name
+    if dest.exists():
+        shutil.rmtree(dest, ignore_errors=True)
+    shutil.copytree(str(model_dir), str(dest))
+    _SAFE_MODEL_CACHE[key] = dest
+    return dest
+
+
 class LocalPaddleOCRReader:
     """PaddleOCR 单次加载；ocr 直接接收预处理后的 ndarray。"""
 
@@ -883,6 +918,9 @@ class LocalPaddleOCRReader:
                 _debug_log(
                     f"ensure_loaded: model_root={model_root}; det={det_model_dir}; rec={rec_model_dir}; cls={cls_model_dir}"
                 )
+                det_model_dir = _ensure_ascii_model_dir(det_model_dir)
+                rec_model_dir = _ensure_ascii_model_dir(rec_model_dir)
+                cls_model_dir = _ensure_ascii_model_dir(cls_model_dir)
                 init_kwargs = dict(
                     device="cpu",
                     enable_hpi=False,
@@ -925,10 +963,26 @@ class LocalPaddleOCRReader:
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                _debug_log("ensure_loaded: exception")
-                _debug_log(traceback.format_exc().rstrip())
                 self.ready = False
                 self.error = str(e)
+                try:
+                    diag = [f"ERROR: {e!r}", traceback.format_exc().rstrip()]
+                    diag.append(f"RUNTIME_DIR={RUNTIME_DIR}")
+                    diag.append(f"MEIPASS_DIR={MEIPASS_DIR}")
+                    diag.append(f"PADDLEOCR_HOME={os.environ.get('PADDLEOCR_HOME','(unset)')}")
+                    mr = _resolve_resource_path(
+                        (self.config_getter() or {}).get("paddleocr_model_dir") or "paddleocr_models"
+                    )
+                    diag.append(f"model_root={mr}  exists={mr.exists()}")
+                    if mr.exists():
+                        for f in sorted(mr.rglob("*")):
+                            if f.is_file():
+                                diag.append(f"  {f.relative_to(mr)}  size={f.stat().st_size}")
+                    (RUNTIME_DIR / "ocr_error_diag.txt").write_text(
+                        "\n".join(diag), encoding="utf-8"
+                    )
+                except Exception:
+                    pass
             finally:
                 self.loading = False
             return self.ready
@@ -1199,6 +1253,14 @@ LocalEasyOCRReader = LocalPaddleOCRReader
 
 class App:
     def __init__(self):
+        try:
+            if sys.platform == "win32":
+                imm32 = ctypes.WinDLL("imm32")
+                imm32.ImmDisableIME.argtypes = [ctypes.c_ulong]
+                imm32.ImmDisableIME.restype = ctypes.c_int
+                imm32.ImmDisableIME(0xFFFFFFFF)
+        except Exception:
+            pass
         self.config_data = self.load_config()
         self.data = self.load_data()
         self.total_count = int(self.data.get("count", 0))
@@ -1476,7 +1538,8 @@ class App:
             get_long = getattr(user32, "GetWindowLongPtrW", None) or user32.GetWindowLongW
             set_long = getattr(user32, "SetWindowLongPtrW", None) or user32.SetWindowLongW
 
-            ex_style = int(get_long(hwnd, GWL_EXSTYLE))
+            current_ex = int(get_long(hwnd, GWL_EXSTYLE))
+            ex_style = current_ex
             ex_style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW
             ex_style &= ~WS_EX_APPWINDOW
             if enabled:
@@ -1487,14 +1550,26 @@ class App:
                 ex_style &= ~WS_EX_NOACTIVATE
                 self._remove_mouse_passthrough_hook()
 
-            set_long(hwnd, GWL_EXSTYLE, ex_style)
             alpha_255 = max(76, min(255, int(round(self._clamp_alpha(self.alpha_var.get()) * 255))))
-            ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, alpha_255, LWA_ALPHA)
+            style_changed = (ex_style != current_ex)
+            alpha_changed = (getattr(self, "_last_applied_alpha_255", None) != alpha_255)
 
-            flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
-            if enabled:
-                flags |= SWP_NOACTIVATE
-            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, flags)
+            # 状态未变化时不再调 SetWindowLong / SetLayeredWindowAttributes / SetWindowPos，
+            # 以免每次 guard tick 都释放游戏的 ClipCursor 导致鼠标跳出来。
+            if not style_changed and not alpha_changed:
+                return
+
+            if style_changed:
+                set_long(hwnd, GWL_EXSTYLE, ex_style)
+            if alpha_changed:
+                ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, alpha_255, LWA_ALPHA)
+                self._last_applied_alpha_255 = alpha_255
+
+            if style_changed:
+                flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
+                if enabled:
+                    flags |= SWP_NOACTIVATE
+                ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, flags)
         except Exception:
             pass
 
@@ -2023,7 +2098,7 @@ class App:
 
 
     def get_current_version(self):
-        return str(self.config_data.get("app_version", "v1.1.0"))
+        return str(self.config_data.get("app_version", "v1.1.1"))
 
     def compare_versions(self, current, latest):
         def parse(v):
@@ -3026,6 +3101,39 @@ class App:
         self.compact_species_text.delete(0, "end")
         for line in lines:
             self.compact_species_text.insert("end", line)
+        target_h = max(3, min(len(lines), 20))
+        try:
+            if int(self.compact_species_text.cget("height")) != target_h:
+                self.compact_species_text.configure(height=target_h)
+                self._auto_resize_compact_window()
+        except Exception:
+            pass
+
+    def _auto_resize_compact_window(self):
+        if not getattr(self, "in_compact_mode", False):
+            return
+        try:
+            self.root.update_idletasks()
+            req_h = int(self.root.winfo_reqheight())
+            cur_w = int(self.root.winfo_width()) or self.compact_size[0]
+            sh = int(self.root.winfo_screenheight())
+            max_h = max(400, int(sh * 0.9))
+            new_h = max(320, min(req_h, max_h))
+            cur_h = int(self.root.winfo_height())
+            if abs(new_h - cur_h) > 2:
+                x = int(self.root.winfo_x())
+                y = int(self.root.winfo_y())
+                if y + new_h > sh - 20:
+                    y = max(10, sh - new_h - 40)
+                self.root.geometry(f"{cur_w}x{new_h}+{x}+{y}")
+                self.compact_size = (cur_w, new_h)
+                try:
+                    self.config_data["compact_window"]["width"] = cur_w
+                    self.config_data["compact_window"]["height"] = new_h
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def update_display(self):
         self.count_var.set(str(self.total_count))
@@ -3218,6 +3326,50 @@ class App:
     def normalize_hotkey(self, value):
         return value.strip().lower().replace(" ", "")
 
+    _VK_MAP = {
+        "ctrl": 0x11, "control": 0x11, "left ctrl": 0x11, "right ctrl": 0x11,
+        "shift": 0x10, "left shift": 0x10, "right shift": 0x10,
+        "alt": 0x12, "menu": 0x12, "left alt": 0x12, "right alt": 0x12,
+        "tab": 0x09, "enter": 0x0D, "return": 0x0D,
+        "esc": 0x1B, "escape": 0x1B, "space": 0x20,
+        "backspace": 0x08, "delete": 0x2E, "del": 0x2E,
+        "insert": 0x2D, "home": 0x24, "end": 0x23,
+        "pageup": 0x21, "pagedown": 0x22,
+        "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+        "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73,
+        "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77,
+        "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
+        "=": 0xBB, "+": 0xBB, "-": 0xBD, ",": 0xBC, ".": 0xBE,
+        "/": 0xBF, "\\": 0xDC, "[": 0xDB, "]": 0xDD,
+        ";": 0xBA, "'": 0xDE, "`": 0xC0,
+        "numlock": 0x90, "capslock": 0x14, "scrolllock": 0x91,
+    }
+    for _i in range(10):
+        _VK_MAP[str(_i)] = 0x30 + _i
+    for _i in range(26):
+        _VK_MAP[chr(0x61 + _i)] = 0x41 + _i
+
+    @classmethod
+    def _parse_hotkey_to_vks(cls, hotkey_str):
+        parts = hotkey_str.lower().replace(" ", "").split("+")
+        vks = []
+        for part in parts:
+            vk = cls._VK_MAP.get(part)
+            if vk is None:
+                return None
+            vks.append(vk)
+        return vks
+
+    @staticmethod
+    def _is_hotkey_pressed_native(vk_list):
+        if not vk_list or sys.platform != "win32":
+            return False
+        user32 = ctypes.windll.user32
+        for vk in vk_list:
+            if not (user32.GetAsyncKeyState(vk) & 0x8000):
+                return False
+        return True
+
     def _update_lock_visual_state(self):
         locked = bool(getattr(self, "window_locked", False))
         hotkey_fg = LOCK_ACTIVE_GREEN if locked else LOCK_IDLE_PURPLE
@@ -3244,14 +3396,6 @@ class App:
         self._update_lock_visual_state()
 
     def unregister_hotkeys(self):
-        for handle in self.hotkey_handles:
-            try:
-                keyboard.remove_hotkey(handle)
-            except Exception:
-                try:
-                    keyboard.unhook(handle)
-                except Exception:
-                    pass
         self.hotkey_handles.clear()
 
     def toggle_monitor(self):
@@ -3308,6 +3452,7 @@ class App:
         self._hotkey_poll_thread.start()
 
     def poll_hotkeys(self):
+        vk_cache = {}
         while True:
             try:
                 hk = dict(self.config_data.get("hotkeys", {}))
@@ -3315,11 +3460,10 @@ class App:
                     key = self.normalize_hotkey(hk.get(action, ""))
                     if not key:
                         continue
-                    pressed = False
-                    try:
-                        pressed = bool(keyboard.is_pressed(key))
-                    except Exception:
-                        pressed = False
+                    if key not in vk_cache:
+                        vk_cache[key] = self._parse_hotkey_to_vks(key)
+                    vks = vk_cache.get(key)
+                    pressed = self._is_hotkey_pressed_native(vks) if vks else False
 
                     prev = bool(self._poll_key_state.get(action, False))
                     if pressed and not prev:
@@ -3336,38 +3480,16 @@ class App:
         self._hotkey_last_fire = {}
         ok = 0
         errors = []
-        try:
-            self.hotkey_handles.append(keyboard.add_hotkey(hk["add"], lambda: self._trigger_hotkey_action("add"), suppress=False, trigger_on_release=True))
-            ok += 1
-        except Exception as e:
-            errors.append(f"+污失败: {e}")
-        try:
-            self.hotkey_handles.append(keyboard.add_hotkey(hk["sub"], lambda: self._trigger_hotkey_action("sub"), suppress=False, trigger_on_release=True))
-            ok += 1
-        except Exception as e:
-            errors.append(f"-污失败: {e}")
-        try:
-            self.hotkey_handles.append(keyboard.add_hotkey(hk["start"], lambda: self._trigger_hotkey_action("start"), suppress=False, trigger_on_release=True))
-            ok += 1
-        except Exception as e:
-            errors.append(f"启关失败: {e}")
-        try:
-            self.hotkey_handles.append(keyboard.add_hotkey(hk["pause"], lambda: self._trigger_hotkey_action("pause"), suppress=False, trigger_on_release=True))
-            ok += 1
-        except Exception as e:
-            errors.append(f"暂停失败: {e}")
-        try:
-            self.hotkey_handles.append(
-                keyboard.add_hotkey(
-                    hk.get("lock", "-"),
-                    lambda: self._trigger_hotkey_action("lock"),
-                    suppress=False,
-                    trigger_on_release=True,
-                )
-            )
-            ok += 1
-        except Exception as e:
-            errors.append(f"锁定失败: {e}")
+        for action, label in (("add", "+污"), ("sub", "-污"), ("start", "启关"), ("pause", "暂停"), ("lock", "锁定")):
+            key = self.normalize_hotkey(hk.get(action, ""))
+            if not key:
+                errors.append(f"{label}:空")
+                continue
+            vks = self._parse_hotkey_to_vks(key)
+            if vks is None:
+                errors.append(f"{label}:无法识别 '{key}'")
+            else:
+                ok += 1
 
         if ok == 5:
             self.status_var.set("全局热键已注册")
@@ -3377,6 +3499,7 @@ class App:
             self.status_var.set("全局热键注册失败")
         if errors:
             print("[hotkey]", " | ".join(errors))
+        self.start_hotkey_polling()
         self.refresh_hotkey_tip()
 
     def record_hotkey(self, mode):
@@ -3404,6 +3527,10 @@ class App:
             self.root.after(0, lambda: self.status_var.set(f"录制失败: {e}"))
         finally:
             self.awaiting_hotkey = None
+            try:
+                keyboard.unhook_all()
+            except Exception:
+                pass
         self._last_status_push_time = 0.0
         self._last_status_push_text = None
 
@@ -3804,6 +3931,16 @@ class App:
 
     def count_detected_event(self, clean_name, _raw_name, middle_text):
         clean_name = clean_pet_name(clean_name)
+        unknown_name = clean_pet_name(self.config_data.get("unknown_species_name", "未识别"))
+        if clean_name == unknown_name:
+            self.status_var.set(f"命中但未识别: {middle_text[:18]}")
+            self.set_compact_hint("提示: 未识别到精灵名，不计入今日")
+            self.update_display()
+            try:
+                self.root.update_idletasks()
+            except Exception:
+                pass
+            return
         self.last_species_name = clean_name
         self.total_count += 1
         self.session_count += 1
@@ -3890,7 +4027,7 @@ class App:
         _debug_log(f"_monitor_start_failed: {err_text}")
         messagebox.showerror(
             "OCR未就绪",
-            f"PaddleOCR 不可用。\n\n{err_text}\n\n调试日志：{OCR_DEBUG_LOG}",
+            f"PaddleOCR 不可用。\n\n{err_text}\n\n诊断文件：{RUNTIME_DIR / 'ocr_error_diag.txt'}",
         )
 
     def toggle_pause(self):
@@ -3973,7 +4110,7 @@ class App:
 
     def detect_loop(self):
         """与 `roco_pollution_counter_v0.3_scan_07.py` 相同的监测循环（亮字预判 + 中间 OCR + 名称区 OCR）。"""
-        cooldown = max(0.0, float(self.config_data.get("cooldown_seconds", 2.0)))
+        cooldown = max(8.0, float(self.config_data.get("cooldown_seconds", 8.0)))
         base_scan_interval = float(self.config_data.get("scan_interval", 0.70))
         confirm_frames = int(self.config_data.get("confirm_frames", 1))
         last_pause_status = False

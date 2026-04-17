@@ -2,7 +2,7 @@
 
 一个用于洛克王国世界污染追踪的桌面计数工具。  
 A desktop counter tool for Roco Kingdom world pollution tracking.
-下载地址：https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.1.0/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8_v1.1.0.zip
+下载地址：https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.1.1/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8v1.1.1.zip
 ---
 
 ## 简介 | Introduction
@@ -103,12 +103,15 @@ It is suitable for players who want to track data while playing, with support fo
 
 ## 更新日志 | Changelog
 
-当前正式版本：`v1.1.0`
+当前正式版本：`v1.1.1`
 
-- 修复 PaddleOCR 在 CPU 环境下的兼容问题
-- 优化紧凑悬浮窗布局、锁定交互与提示文案
-- 增强分辨率预设适配，支持按当前分辨率自动推算区域
-- 降低待机扫描时的空转 CPU 占用
+- 修复运行时鼠标卡顿：移除 `keyboard` 全局钩子，改用 Win32 `GetAsyncKeyState` 轮询
+- 修复抓精灵时输入法弹出导致鼠标卡顿：进程启动时调用 `ImmDisableIME` 禁用 IME
+- 修复小窗锁定时游戏鼠标莫名出现：点击穿透状态幂等化，不再频繁调 `SetWindowPos`
+- 修复中文路径下 PaddleOCR 模型加载失败：自动复制模型到纯 ASCII 临时目录
+- 识别为「未识别」时不再计入今日总污染数
+- 小窗精灵统计列表根据条目数自动变长
+- 自动识别冷却时间改为 8 秒（手动 +污/-污 不受影响）
 
 详细更新内容请查看 Release 页面。  
 For detailed updates, please check the Release page.

@@ -3,7 +3,7 @@ py -m PyInstaller ^
   --clean ^
   --onedir ^
   --windowed ^
-  --name "污染计数器v1.1.0" ^
+  --name "污染计数器v1.1.1" ^
   --icon "roco_counter_icon.ico" ^
   --add-data "paddleocr_models;paddleocr_models" ^
   --add-data "roco_counter_icon.ico;." ^
