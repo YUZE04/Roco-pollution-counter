@@ -1,0 +1,1 @@
+py -m app.main

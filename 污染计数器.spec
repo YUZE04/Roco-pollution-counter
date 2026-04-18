@@ -50,7 +50,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='污染计数器v1.1.1',
+    name='污染计数器v1.1.2',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -70,5 +70,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='污染计数器v1.1.1',
+    name='污染计数器v1.1.2',
 )

@@ -2,7 +2,7 @@
 
 一个用于洛克王国世界污染追踪的桌面计数工具。  
 A desktop counter tool for Roco Kingdom world pollution tracking.
-下载地址：https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.1.1/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8v1.1.1.zip
+下载地址：https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.1.2/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8v1.1.2.zip
 ---
 
 ## 简介 | Introduction
@@ -103,7 +103,16 @@ It is suitable for players who want to track data while playing, with support fo
 
 ## 更新日志 | Changelog
 
-当前正式版本：`v1.1.1`
+当前正式版本：`v1.1.2`
+
+- 修复同一场战斗被重复计数：加入触发沿检测，关键字消失前不再二次计数
+- 自动识别冷却时间从 8 秒调整为 12 秒（手动 +污/-污 不受影响）
+- 进一步优化鼠标卡顿：工作线程降至 `BELOW_NORMAL` 优先级
+- UI 线程磁盘写入节流 2 秒，避免每次命中都同步写 JSON
+- 降低点击穿透守护频率（700ms → 2500ms）
+- OCR 就绪后停止状态轮询
+
+### v1.1.1
 
 - 修复运行时鼠标卡顿：移除 `keyboard` 全局钩子，改用 Win32 `GetAsyncKeyState` 轮询
 - 修复抓精灵时输入法弹出导致鼠标卡顿：进程启动时调用 `ImmDisableIME` 禁用 IME

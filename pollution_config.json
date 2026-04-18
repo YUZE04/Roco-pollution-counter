@@ -147,8 +147,8 @@
   "window": {
     "x": 2236,
     "y": 450,
-    "width": 320,
-    "height": 400
+    "width": 360,
+    "height": 395
   },
   "compact_window": {
     "width": 300,
@@ -169,6 +169,33 @@
   "middle_fallback_keywords": [
     "力量"
   ],
+  "middle_ocr_modes": [
+    [
+      3,
+      "binary"
+    ],
+    [
+      3,
+      "gray"
+    ],
+    [
+      4,
+      "binary"
+    ],
+    [
+      3,
+      "clahe"
+    ],
+    [
+      2,
+      "gray"
+    ]
+  ],
+  "middle_bright_threshold": 170,
+  "middle_white_pixels_threshold": 45,
+  "middle_bright_streak_required": 1,
+  "middle_partial_confidence_threshold": 0.45,
+  "middle_min_char_match_ratio": 0.5,
   "header_ocr_modes": [
     [
       4,
@@ -198,5 +225,7 @@
   "window_client_size": {
     "w": 1920,
     "h": 1200
-  }
+  },
+  "overlay_locked": false,
+  "overlay_alpha": 0.82
 }

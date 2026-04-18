@@ -633,7 +633,7 @@ DEFAULT_CONFIG = {
         "name_in_header": {"left": 99, "top": 35, "width": 204, "height": 48}
     },
     "resolution_presets": _build_builtin_resolution_presets(),
-    "cooldown_seconds": 8.0,
+    "cooldown_seconds": 12.0,
     "scan_interval": 0.7,
     "confirm_frames": 1,
     "window": {"x": 60, "y": 60, "width": 560, "height": 620},
@@ -654,7 +654,7 @@ DEFAULT_CONFIG = {
     "header_ocr_modes": [[4, "binary"], [3, "gray"]],
     "name_read_delay": 0.0,
     "drag_bar_height": 32,
-    "app_version": "v1.1.1",
+    "app_version": "v1.1.2",
     "update_info_url": "https://raw.githubusercontent.com/YUZE04/Roco-pollution-counter/main/version.json",
     "github_api_latest_url": "https://api.github.com/repos/YUZE04/Roco-pollution-counter/releases/latest",
     "release_page_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/latest",
@@ -1599,7 +1599,7 @@ class App:
                 return
             self._apply_clickthrough_now(True)
             self._set_window_no_activate(True)
-            self._clickthrough_guard_job = self.root.after(700, self._clickthrough_guard_tick)
+            self._clickthrough_guard_job = self.root.after(2500, self._clickthrough_guard_tick)
         except Exception:
             pass
 
@@ -1733,14 +1733,37 @@ class App:
                 pass
         return {"count": 0, "species_counts": {}, "daily_totals": {}, "daily_species": {}, "species_total_counts": {}}
 
-    def save_data(self):
-        SAVE_FILE.write_text(json.dumps({
-            "count": self.total_count,
-            "species_counts": self.species_counts,
-            "daily_totals": self.daily_totals,
-            "daily_species": self.daily_species,
-            "species_total_counts": self.species_total_counts,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+    def save_data(self, force=False):
+        # 节流：非强制保存时至多每 2 秒写一次盘，避免 UI 线程被频繁的 JSON 写入拖慢、导致鼠标卡顿
+        now = time.monotonic()
+        if not force:
+            last = float(getattr(self, "_last_save_data_time", 0.0))
+            if now - last < 2.0:
+                self._pending_save_data = True
+                if not getattr(self, "_save_data_scheduled", False):
+                    try:
+                        self._save_data_scheduled = True
+                        self.root.after(2100, self._flush_pending_save_data)
+                    except Exception:
+                        self._save_data_scheduled = False
+                return
+        self._last_save_data_time = now
+        self._pending_save_data = False
+        try:
+            SAVE_FILE.write_text(json.dumps({
+                "count": self.total_count,
+                "species_counts": self.species_counts,
+                "daily_totals": self.daily_totals,
+                "daily_species": self.daily_species,
+                "species_total_counts": self.species_total_counts,
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _flush_pending_save_data(self):
+        self._save_data_scheduled = False
+        if getattr(self, "_pending_save_data", False):
+            self.save_data(force=True)
 
     def ensure_today_bucket(self):
         day = today_str()
@@ -2098,7 +2121,7 @@ class App:
 
 
     def get_current_version(self):
-        return str(self.config_data.get("app_version", "v1.1.1"))
+        return str(self.config_data.get("app_version", "v1.1.2"))
 
     def compare_versions(self, current, latest):
         def parse(v):
@@ -2817,13 +2840,15 @@ class App:
     def update_ocr_state(self):
         if self.ocr.ready:
             self.ocr_state_var.set("PaddleOCR状态: 已就绪")
+            # OCR 已加载完成后就不用继续轮询了
+            return
         elif self.ocr.loading:
             self.ocr_state_var.set("PaddleOCR状态: 加载中")
         elif self.ocr.error:
             self.ocr_state_var.set("PaddleOCR状态: " + self.ocr.error[:60])
         else:
             self.ocr_state_var.set("PaddleOCR状态: 未检查")
-        self.root.after(800, self.update_ocr_state)
+        self.root.after(1500, self.update_ocr_state)
 
     def apply_topmost(self):
         self.root.attributes("-topmost", bool(self.top_var.get()))
@@ -4110,10 +4135,22 @@ class App:
 
     def detect_loop(self):
         """与 `roco_pollution_counter_v0.3_scan_07.py` 相同的监测循环（亮字预判 + 中间 OCR + 名称区 OCR）。"""
-        cooldown = max(8.0, float(self.config_data.get("cooldown_seconds", 8.0)))
+        # 降低工作线程优先级，确保 UI 线程能及时处理鼠标消息，减少卡顿
+        try:
+            if sys.platform == "win32":
+                kernel32 = ctypes.windll.kernel32
+                THREAD_PRIORITY_BELOW_NORMAL = -1
+                kernel32.SetThreadPriority(kernel32.GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL)
+        except Exception:
+            pass
+        cooldown = max(12.0, float(self.config_data.get("cooldown_seconds", 12.0)))
         base_scan_interval = float(self.config_data.get("scan_interval", 0.70))
         confirm_frames = int(self.config_data.get("confirm_frames", 1))
         last_pause_status = False
+        # 触发沿检测：仅在"关键字从无到有"时才计数，避免同一场战斗/结算画面里反复触发
+        trigger_armed = True
+        miss_frames_to_rearm = 3
+        consecutive_miss_frames = 0
 
         prev_middle_thumb = None
         unchanged_loops = 0
@@ -4270,12 +4307,20 @@ class App:
 
                     if triggered:
                         self.confirm_hit_streak += 1
+                        consecutive_miss_frames = 0
                     else:
                         self.confirm_hit_streak = 0
+                        consecutive_miss_frames += 1
+                        # 连续若干帧没看到关键字后，重新武装触发器
+                        if consecutive_miss_frames >= miss_frames_to_rearm:
+                            trigger_armed = True
 
-                    if triggered and self.confirm_hit_streak >= confirm_frames and (now - self.last_detect_time) >= cooldown:
+                    if (triggered and trigger_armed
+                            and self.confirm_hit_streak >= confirm_frames
+                            and (now - self.last_detect_time) >= cooldown):
                         self.last_detect_time = now
                         self.confirm_hit_streak = 0
+                        trigger_armed = False  # 必须等关键字消失后才能再次触发
                         delay = float(self.config_data.get("name_read_delay", 0.0))
                         if delay > 0:
                             time.sleep(delay)
@@ -4378,7 +4423,7 @@ class App:
         self.running = False
         self.in_compact_mode = False
         self._close_settings_dialog()
-        self.save_data()
+        self.save_data(force=True)
         self.save_config()
         self.unregister_hotkeys()
         self.root.destroy()

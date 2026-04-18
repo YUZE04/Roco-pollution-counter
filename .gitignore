@@ -11,3 +11,11 @@ build/
 _ocr_checks/
 _screen_debug/
 _tmp_slim_check/
+
+# 打包产物
+*.zip
+_build.log
+_out.log
+_err.log
+_run.log
+ocr_error_diag.txt
