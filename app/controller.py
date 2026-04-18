@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from typing import Any, Dict
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
@@ -50,6 +51,10 @@ class AppController(QObject):
         self._cfg_save_timer.setSingleShot(True)
         self._cfg_save_timer.timeout.connect(self._flush_config)
         self._cfg_dirty = False
+
+        # 自动计数硬冷却：两次自动 +1 之间的最小时间间隔（秒）。
+        # 不论 detector 怎么报、热键 hotkey 怎么按，都拦在这里。手动 +/- 不受影响。
+        self._last_auto_increment_ts: float = 0.0
 
     # ---------- 属性 ----------
 
@@ -207,6 +212,10 @@ class AppController(QObject):
     # OCR 误识别为这些字符时一律忽略（不计入总数）
     _IGNORED_NAMES = {"无", "无字", "无 ", " 无"}
 
+    # 自动计数最小间隔（秒）。比 detector cooldown 更宽松一档，
+    # 主要兜底防止 detector 上层 bug / OCR 极端抖动导致的同场重复。
+    _AUTO_INCREMENT_MIN_INTERVAL = 10.0
+
     def _on_species_detected(self, clean_name: str, middle_text: str) -> None:
         name = clean_pet_name(clean_name)
         unknown = self._config.get("unknown_species_name", "未识别")
@@ -217,6 +226,16 @@ class AppController(QObject):
         if name.strip() in self._IGNORED_NAMES:
             self.status_text_changed.emit(f"忽略噪声识别：{name}")
             return
+        # 硬门槛：两次自动 +1 之间至少 _AUTO_INCREMENT_MIN_INTERVAL 秒
+        now = time.time()
+        gap = now - self._last_auto_increment_ts
+        if gap < self._AUTO_INCREMENT_MIN_INTERVAL:
+            remain = self._AUTO_INCREMENT_MIN_INTERVAL - gap
+            self.status_text_changed.emit(
+                f"忽略：距上次自动计数仅 {gap:.1f}s（需 ≥ {self._AUTO_INCREMENT_MIN_INTERVAL:.0f}s，剩 {remain:.1f}s）"
+            )
+            return
+        self._last_auto_increment_ts = now
         self._data.increment(name)
         self.data_changed.emit()
         self.status_text_changed.emit(f"+1 {name}")
