@@ -88,8 +88,10 @@ class DetectorThread(QThread):
         last_detect_time = 0.0
         confirm_hit_streak = 0
         trigger_armed = True
-        miss_frames_to_rearm = 3
-        consecutive_miss = 0
+        # rearm 改用"亮像素低于阈值"作为 ground truth：OCR 在战斗中偶尔
+        # 抖动失败 3 次也不会误判战斗结束，从而不会同一场战斗重复计数。
+        dark_frames_to_rearm = max(3, int(cfg.get("dark_frames_to_rearm", 5)))
+        consecutive_dark = 0
         bright_candidate_streak = 0
 
         with mss.mss() as sct:
@@ -127,8 +129,13 @@ class DetectorThread(QThread):
 
                     if white_pixels >= white_pixels_threshold:
                         bright_candidate_streak += 1
+                        consecutive_dark = 0
                     else:
                         bright_candidate_streak = max(0, bright_candidate_streak - 1)
+                        consecutive_dark += 1
+                        # 屏幕真的黑了足够多帧 → 战斗结束 → 允许下一场再次触发
+                        if consecutive_dark >= dark_frames_to_rearm:
+                            trigger_armed = True
 
                     run_middle_ocr = (
                         bright_streak_required <= 0
@@ -149,12 +156,10 @@ class DetectorThread(QThread):
 
                     if triggered:
                         confirm_hit_streak += 1
-                        consecutive_miss = 0
                     else:
                         confirm_hit_streak = 0
-                        consecutive_miss += 1
-                        if consecutive_miss >= miss_frames_to_rearm:
-                            trigger_armed = True
+                    # 注意：rearm 已迁到上面的 consecutive_dark 判断，
+                    # OCR 抖动失败不再误触 rearm。
 
                     if (
                         triggered

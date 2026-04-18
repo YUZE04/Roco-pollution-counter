@@ -204,11 +204,18 @@ class AppController(QObject):
 
     # ---------- 槽 ----------
 
+    # OCR 误识别为这些字符时一律忽略（不计入总数）
+    _IGNORED_NAMES = {"无", "无字", "无 ", " 无"}
+
     def _on_species_detected(self, clean_name: str, middle_text: str) -> None:
         name = clean_pet_name(clean_name)
         unknown = self._config.get("unknown_species_name", "未识别")
         if name == unknown:
             self.status_text_changed.emit(f"命中但未识别: {middle_text[:18]}")
+            return
+        # "无" 这类无意义识别结果直接丢弃，不增加总数
+        if name.strip() in self._IGNORED_NAMES:
+            self.status_text_changed.emit(f"忽略噪声识别：{name}")
             return
         self._data.increment(name)
         self.data_changed.emit()
