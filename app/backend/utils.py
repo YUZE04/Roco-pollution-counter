@@ -6,21 +6,7 @@ import re
 import time
 from typing import Dict, Optional
 
-_SHIGUANG_PREFIX_CHARS = {
-    "噬", "嗜", "筮", "啮",
-    "曙", "暑", "薯", "署", "蜀",
-    "噌", "噎", "嚷", "嗤", "啫",
-}
-_SHIGUANG_SECOND_CHARS = {
-    "光", "咣", "胱", "恍", "晃", "党",
-}
-_SHIGUANG_BUZZ_CHARS = {
-    "嗡", "翁", "蜂", "峰", "鸣", "呜",
-    "喻", "瑜", "谕", "渝", "榆", "愉",
-    "嗽", "啜", "哨", "唯", "噶", "喃",
-    "喔", "吼", "吽", "哮", "嗷", "嗨",
-    "嘟", "咄", "呐", "吶", "呦", "哟",
-}
+_SHIGUANG_SECOND_CHAR = "光"
 
 
 def today_str() -> str:
@@ -37,20 +23,13 @@ def normalize_text(text: str) -> str:
 def normalize_known_pet_name(text: str) -> str:
     """把已知 OCR 易错名称归并到标准精灵名。
 
-    噬光嗡嗡的识别策略（任意一条命中即归并）：
-    1) 前缀 ∈ PREFIX_CHARS 且中间 ∈ SECOND_CHARS 且后两字都 ∈ BUZZ_CHARS
-    2) 前缀 ∈ PREFIX_CHARS 且中间 ∈ SECOND_CHARS 且后两字是同一个中文字（兜底）
+    噬光嗡嗡归并规则：长度为 4 且第 2 个字是「光」，一律归并。
+    理由：污染频率里只有「噬光嗡嗡」这一只 X光XX 结构，
+    OCR 怎么错都跑不出这个模板，直接归并最稳。
     """
     t = str(text or "").strip()
-    if len(t) == 4:
-        prefix_ok = t[0] in _SHIGUANG_PREFIX_CHARS and t[1] in _SHIGUANG_SECOND_CHARS
-        if prefix_ok:
-            # 规则 1：后两字在白名单里
-            if t[2] in _SHIGUANG_BUZZ_CHARS and t[3] in _SHIGUANG_BUZZ_CHARS:
-                return "噬光嗡嗡"
-            # 规则 2：后两字是同一个中文字（例如 XX 叠字），兜底归并
-            if t[2] == t[3] and "\u4e00" <= t[2] <= "\u9fff":
-                return "噬光嗡嗡"
+    if len(t) == 4 and t[1] == _SHIGUANG_SECOND_CHAR:
+        return "噬光嗡嗡"
     return t
 
 

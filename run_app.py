@@ -94,6 +94,112 @@ sys.excepthook = _early_excepthook
 _boot_log("run_app.py: boot begin")
 
 
+# ---- 中文路径兼容：必要时用 Windows 8.3 短路径重启 --------------------------
+
+def _maybe_relaunch_with_short_path() -> None:
+    """PaddleOCR / PaddlePaddle 的 C++ 后端用 `std::ifstream` 打开模型配置，
+    该流在 Windows 上不支持 UTF-8 路径（使用 ANSI code page）。
+    如果 exe 安装路径含非 ASCII（如中文），用 Windows 8.3 短路径替身重新启动自己，
+    子进程看到的 sys.executable / sys._MEIPASS 就都是纯 ASCII 了。
+    """
+    if sys.platform != "win32":
+        return
+    if not getattr(sys, "frozen", False):
+        return  # 源码运行，不重启
+    if os.environ.get("POLLUTION_COUNTER_SHORTPATH_RELAUNCHED") == "1":
+        return  # 已经重启过，避免无限循环
+
+    exe = sys.executable
+    try:
+        exe.encode("ascii")
+        return  # 本身就是 ASCII
+    except UnicodeEncodeError:
+        pass
+
+    try:
+        GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+        GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        GetShortPathNameW.restype = ctypes.c_uint32
+        buf = ctypes.create_unicode_buffer(4096)
+        n = GetShortPathNameW(exe, buf, len(buf))
+        if n == 0 or n >= len(buf):
+            _boot_log("shortpath: GetShortPathNameW failed", f"exe={exe}")
+            return
+        short = buf.value
+    except Exception as e:
+        _boot_log("shortpath: ctypes 调用异常", f"{e!r}")
+        return
+
+    try:
+        short.encode("ascii")
+    except UnicodeEncodeError:
+        _boot_log("shortpath: 短路径仍含非 ASCII", f"short={short}")
+        return
+
+    if short.lower() == exe.lower():
+        return  # 没有差异
+
+    _boot_log("shortpath: 用短路径重启", f"from={exe}\nto  ={short}")
+    os.environ["POLLUTION_COUNTER_SHORTPATH_RELAUNCHED"] = "1"
+    try:
+        os.execv(short, [short] + sys.argv[1:])
+    except Exception as e:
+        _boot_log("shortpath: os.execv 失败", f"{e!r}")
+
+
+_maybe_relaunch_with_short_path()
+
+
+# ---- 预检：扫描关键模型/配置目录，发现 0 字节文件即是解压损坏 ----------------
+
+def _preflight_check_corrupt_files() -> None:
+    if not getattr(sys, "frozen", False):
+        return
+    root = Path(sys.executable).resolve().parent
+    # 只扫最关键的几个目录，避免耗时过长
+    scan_dirs = [
+        root / "_internal" / "paddle",
+        root / "_internal" / "paddlex",
+        root / "_internal" / "paddleocr",
+        root / "paddleocr_models",
+        root / "_internal" / "paddleocr_models",
+    ]
+    suspicious = []
+    for d in scan_dirs:
+        if not d.exists():
+            continue
+        try:
+            for p in d.rglob("*"):
+                if not p.is_file():
+                    continue
+                # 只关心配置/模型元数据类文件
+                if p.suffix.lower() in {".json", ".yaml", ".yml", ".txt"} and p.stat().st_size == 0:
+                    suspicious.append(p)
+                    if len(suspicious) > 10:
+                        break
+            if len(suspicious) > 10:
+                break
+        except Exception as e:
+            _boot_log("preflight: 扫描目录异常", f"dir={d} err={e!r}")
+
+    if suspicious:
+        sample = "\n".join(f"  - {p}" for p in suspicious[:5])
+        msg = (
+            "检测到 0 字节的配置文件（共 " + str(len(suspicious)) + " 个）：\n\n"
+            + sample
+            + "\n\n这通常是 zip 解压不完整 / 被杀毒软件拦截。请：\n"
+            "  1) 用 7-Zip 或 Bandizip 重新解压 zip（不要用 Windows 自带解压）\n"
+            "  2) 把整个文件夹加入杀毒软件白名单\n"
+            "  3) 把安装路径换到纯英文目录，如 D:\\RocoPC"
+        )
+        _boot_log("preflight: 发现 0 字节文件", msg)
+        _boot_msgbox(msg)
+        sys.exit(2)
+
+
+_preflight_check_corrupt_files()
+
+
 # ---- 真正的导入与启动 --------------------------------------------------------
 
 try:
