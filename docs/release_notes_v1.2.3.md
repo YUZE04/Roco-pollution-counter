@@ -5,7 +5,7 @@
 ## 新增
 
 - **启动诊断**：其他电脑上"打不开"时，exe 同级目录会自动生成 `startup_error.log`（启用了 `faulthandler`），可直接把它发回来定位问题。
-- **OCR 别名表**：新增 `ocr_name_aliases` 配置项，默认把误识别的 `噬光嗡嗡` 修正为 `曙光瑜瑜`。可在 `pollution_config.json` 里自行增删映射。
+- **OCR 别名表**：新增 `ocr_name_aliases` 配置项，默认把误识别的 `曙光瑜瑜` 修正为 `噬光嗡嗡`。可在 `pollution_config.json` 里自行增删映射。
 - **关于页**：显示作者信息（小丑鱼 / 抖音号 conflicto834）。
 
 ## 改进

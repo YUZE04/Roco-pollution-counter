@@ -47,8 +47,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "overlay_locked": False,
     "overlay_alpha": 0.82,
     # OCR 误识别别名表：{OCR 结果: 真实名字}。默认修正一个已知误识别。
+    # 真实精灵名是「噬光嗡嗡」，OCR 偶尔会读成「曙光瑜瑜」。
     "ocr_name_aliases": {
-        "噬光嗡嗡": "曙光瑜瑜",
+        "曙光瑜瑜": "噬光嗡嗡",
     },
 }
 
@@ -65,6 +66,11 @@ def load_config() -> Dict[str, Any]:
                 **build_builtin_resolution_presets(),
                 **(cfg.get("resolution_presets") or {}),
             }
+            # 迁移：v1.2.3 首发时把 OCR 别名方向写反了，自动纠正
+            aliases = cfg.get("ocr_name_aliases")
+            if isinstance(aliases, dict) and aliases.get("噬光嗡嗡") == "曙光瑜瑜":
+                aliases.pop("噬光嗡嗡", None)
+                aliases.setdefault("曙光瑜瑜", "噬光嗡嗡")
             return cfg
         except Exception:
             pass

@@ -101,7 +101,7 @@ A lightweight Windows overlay that **auto-counts world-pollution events in Roco 
 
 ```json
 "ocr_name_aliases": {
-  "噬光嗡嗡": "曙光瑜瑜"
+  "曙光瑜瑜": "噬光嗡嗡"
 }
 ```
 
@@ -153,7 +153,7 @@ v1.2.3 起，任何启动阶段的异常都会自动写入 **`startup_error.log`
 ### 🆕 v1.2.3
 
 - 🩺 **启动诊断**：崩溃时自动写 `startup_error.log`，含 `faulthandler` 原生堆栈
-- 🧩 **OCR 别名表**：默认修复「噬光嗡嗡 → 曙光瑜瑜」，可自定义
+- 🧩 **OCR 别名表**：默认修复「曙光瑜瑜 → 噬光嗡嗡」，可自定义
 - ➕ **手动 ± 零门槛**：没有当前精灵时自动回退到今日 / 累计榜首，实在没有会弹输入框让你挑
 - ⌨️ **热键简化**：取消"启动"键，单键改为 ⏯️ 暂停 / 继续
 - 👤 **关于页** 加作者信息：小丑鱼 · 抖音号 `conflicto834`
