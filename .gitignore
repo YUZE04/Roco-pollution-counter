@@ -28,3 +28,6 @@ ocr_error_diag.txt
 # quarkpan 登录凭证绝不入库
 config/
 *.session
+
+# 录屏脚本个人用，不入库
+docs/录屏脚本*.md
