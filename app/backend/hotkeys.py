@@ -78,7 +78,7 @@ def is_pressed(vks: List[int]) -> bool:
 class HotkeyThread(QThread):
     """后台热键轮询。通过 ``hotkey_triggered(action)`` 信号通知主线程。"""
 
-    ACTIONS = ("add", "sub", "start", "pause", "lock")
+    ACTIONS = ("add", "sub", "start", "pause", "lock", "show_main")
 
     hotkey_triggered = pyqtSignal(str)
 

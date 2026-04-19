@@ -25,7 +25,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "confirm_frames": 1,
     "window": {"x": 60, "y": 60, "width": 640, "height": 520},
     "compact_window": {"width": 260, "height": 200, "x": None, "y": None},
-    "hotkeys": {"add": "8", "sub": "9", "start": "7", "pause": "0", "lock": "-"},
+    "hotkeys": {"add": "8", "sub": "9", "start": "7", "pause": "", "lock": "-", "show_main": "0"},
     "unknown_species_name": "未识别",
     "always_on_top": True,
     "window_alpha": 1.0,
