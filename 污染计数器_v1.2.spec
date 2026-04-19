@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""v1.2.0 PyQt6 重写版打包配置。
+"""v1.2.2 PyQt6 重写版打包配置。
 入口是 app/main.py；同时把旧版 1.py 作为数据文件带上（OCR 代码动态导入）。"""
 
 from PyInstaller.utils.hooks import collect_all
@@ -48,7 +48,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='污染计数器v1.2.0',
+    name='污染计数器v1.2.2',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -59,6 +59,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    uac_admin=True,
     icon=['roco_counter_icon.ico'],
 )
 coll = COLLECT(
@@ -68,5 +69,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='污染计数器v1.2.0',
+    name='污染计数器v1.2.2',
 )

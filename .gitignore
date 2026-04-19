@@ -18,4 +18,10 @@ _build.log
 _out.log
 _err.log
 _run.log
+_package_build*.log
+_package_build*.out.log
+_package_build*.err.log
 ocr_error_diag.txt
+# 临时解压 / 整理目录
+新建文件夹/
+污染计数器v*/

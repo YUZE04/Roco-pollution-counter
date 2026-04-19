@@ -8,7 +8,7 @@ Packages:
   - paddleocr_models  目录
   - 图标 / 配置
 
-Output: dist/污染计数器v1.2.0/ 下会有 污染计数器v1.2.0.exe
+Output: dist/污染计数器v1.2.3/ 下会有 污染计数器v1.2.3.exe
 """
 
 from PyInstaller.utils.hooks import collect_all
@@ -77,7 +77,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='污染计数器v1.2.0',
+    name='污染计数器v1.2.3',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -88,6 +88,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    uac_admin=True,
     icon=['roco_counter_icon.ico'],
 )
 
@@ -98,5 +99,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='污染计数器v1.2.0',
+    name='污染计数器v1.2.3',
 )

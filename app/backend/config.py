@@ -40,12 +40,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "middle_min_char_match_ratio": 0.5,
     "header_ocr_modes": [[4, "binary"], [3, "gray"]],
     "name_read_delay": 0.0,
-    "app_version": "v1.2.0",
+    "app_version": "v1.2.3",
     "update_info_url": "https://raw.githubusercontent.com/YUZE04/Roco-pollution-counter/main/version.json",
     "github_api_latest_url": "https://api.github.com/repos/YUZE04/Roco-pollution-counter/releases/latest",
     "release_page_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/latest",
     "overlay_locked": False,
     "overlay_alpha": 0.82,
+    # OCR 误识别别名表：{OCR 结果: 真实名字}。默认修正一个已知误识别。
+    "ocr_name_aliases": {
+        "噬光嗡嗡": "曙光瑜瑜",
+    },
 }
 
 

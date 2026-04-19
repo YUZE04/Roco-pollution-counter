@@ -838,9 +838,12 @@ def _ensure_ascii_model_dir(model_dir):
     safe_root = Path(tempfile.gettempdir()) / "pdocr_models"
     safe_root.mkdir(parents=True, exist_ok=True)
     dest = safe_root / model_dir.name
-    if dest.exists():
-        shutil.rmtree(dest, ignore_errors=True)
-    shutil.copytree(str(model_dir), str(dest))
+    if dest.is_file():
+        try:
+            dest.unlink()
+        except Exception:
+            pass
+    shutil.copytree(str(model_dir), str(dest), dirs_exist_ok=True)
     _SAFE_MODEL_CACHE[key] = dest
     return dest
 

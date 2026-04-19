@@ -6,6 +6,10 @@ import re
 import time
 from typing import Dict, Optional
 
+_SHIGUANG_PREFIX_CHARS = {"噬", "嗜", "筮", "啮"}
+_SHIGUANG_SECOND_CHARS = {"光", "咣"}
+_SHIGUANG_BUZZ_CHARS = {"嗡", "翁", "蜂", "峰", "鸣", "呜"}
+
 
 def today_str() -> str:
     return time.strftime("%Y-%m-%d")
@@ -18,6 +22,20 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
+def normalize_known_pet_name(text: str) -> str:
+    """把已知 OCR 易错名称归并到标准精灵名。"""
+    t = str(text or "").strip()
+    if len(t) == 4:
+        if (
+            t[0] in _SHIGUANG_PREFIX_CHARS
+            and t[1] in _SHIGUANG_SECOND_CHARS
+            and t[2] in _SHIGUANG_BUZZ_CHARS
+            and t[3] in _SHIGUANG_BUZZ_CHARS
+        ):
+            return "噬光嗡嗡"
+    return t
+
+
 def clean_pet_name(text: str) -> str:
     text = normalize_text(text)
     text = text.replace("♂", "").replace("♀", "")
@@ -26,6 +44,7 @@ def clean_pet_name(text: str) -> str:
     text = re.sub(r"^[^\u4e00-\u9fffA-Za-z]+", "", text)
     text = re.sub(r"[^\u4e00-\u9fffA-Za-z]+$", "", text)
     text = text.strip("-.，,。 ")
+    text = normalize_known_pet_name(text)
     return text or "未识别"
 
 
@@ -111,34 +130,56 @@ def parse_resolution_text(text: str) -> tuple[int, int]:
     return 2560, 1600
 
 
-def apply_resolution_preset(cfg: dict, preset: str) -> str:
-    """把预设应用到 cfg（就地修改）。返回模式描述。"""
+def apply_resolution_preset(
+    cfg: dict,
+    preset: str,
+    apply_to_cfg: bool = True,
+) -> str | tuple[str, dict]:
+    """按分辨率应用预设区域配置。
+    
+    Args:
+        cfg: 配置字典
+        preset: 分辨率预设 (如 "2560x1600")
+        apply_to_cfg: 是否直接写回 cfg，否则仅返回基础区域
+        
+    Returns:
+        当 apply_to_cfg=True 时返回模式描述 (str)
+        当 apply_to_cfg=False 时返回 (模式, 基础区域) 元组
+    """
     preset = str(preset or "").strip() or cfg.get("base_resolution", "2560x1600_150缩放")
     presets = cfg.get("resolution_presets", {}) or {}
+    base_regions = {}
+    
     if preset in presets:
         pack = presets[preset]
         for key in ("middle_region", "header_region", "name_in_header"):
             if key in pack:
-                cfg[key] = dict(pack[key])
+                base_regions[key] = dict(pack[key])
         mode = "专用预设"
     else:
         base_w, base_h = parse_resolution_text(cfg.get("base_resolution", "2560x1600"))
         tgt_w, tgt_h = parse_resolution_text(preset)
         sx = tgt_w / max(base_w, 1)
         sy = tgt_h / max(base_h, 1)
-        base_regions = cfg.get("base_regions", {})
+        base_regions_all = cfg.get("base_regions", {})
         for key in ("middle_region", "header_region", "name_in_header"):
-            region = base_regions.get(key)
+            region = base_regions_all.get(key)
             if region:
-                cfg[key] = {
+                base_regions[key] = {
                     "left": int(round(region["left"] * sx)),
                     "top": int(round(region["top"] * sy)),
                     "width": max(1, int(round(region["width"] * sx))),
                     "height": max(1, int(round(region["height"] * sy))),
                 }
         mode = "按比例缩放"
-    cfg["active_resolution"] = preset
-    return mode
+    
+    if apply_to_cfg:
+        for key in ("middle_region", "header_region", "name_in_header"):
+            if key in base_regions:
+                cfg[key] = dict(base_regions[key])
+        cfg["active_resolution"] = preset
+
+    return mode if apply_to_cfg else (mode, base_regions)
 
 
 def build_builtin_resolution_presets() -> dict:

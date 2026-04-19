@@ -1,8 +1,8 @@
 """全局热键轮询线程（Win32 GetAsyncKeyState）。
 
 设计要点：
-- 不使用 `keyboard` 全局钩子（曾经是鼠标卡顿的元凶）
-- 在后台线程按 30ms 轮询 `GetAsyncKeyState`
+- 不使用 ``keyboard`` 全局钩子（曾经是鼠标卡顿的元凶）
+- 在后台线程按 30ms 轮询 ``GetAsyncKeyState``
 - 通过 Qt 信号把 add/sub/start/pause/lock 事件派发到主线程
 - 每个动作自带 400ms 去抖
 """
@@ -34,9 +34,17 @@ _VK_MAP: Dict[str, int] = {
     "/": 0xBF, "\\": 0xDC, "[": 0xDB, "]": 0xDD,
     ";": 0xBA, "'": 0xDE, "`": 0xC0,
     "numlock": 0x90, "capslock": 0x14, "scrolllock": 0x91,
+    "num+": 0x6B, "numplus": 0x6B, "numpad+": 0x6B,
+    "num-": 0x6D, "numminus": 0x6D, "numpad-": 0x6D,
+    "num*": 0x6A, "numpad*": 0x6A,
+    "num/": 0x6F, "numpad/": 0x6F,
+    "num.": 0x6E, "numpad.": 0x6E,
 }
 for _i in range(10):
     _VK_MAP[str(_i)] = 0x30 + _i
+    _VK_MAP[f"num{_i}"] = 0x60 + _i
+    _VK_MAP[f"numpad{_i}"] = 0x60 + _i
+    _VK_MAP[f"kp{_i}"] = 0x60 + _i
 for _i in range(26):
     _VK_MAP[chr(0x61 + _i)] = 0x41 + _i
 
@@ -68,11 +76,11 @@ def is_pressed(vks: List[int]) -> bool:
 
 
 class HotkeyThread(QThread):
-    """后台热键轮询。通过 `hotkey_triggered(action)` 信号通知主线程。"""
+    """后台热键轮询。通过 ``hotkey_triggered(action)`` 信号通知主线程。"""
 
     ACTIONS = ("add", "sub", "start", "pause", "lock")
 
-    hotkey_triggered = pyqtSignal(str)  # action name
+    hotkey_triggered = pyqtSignal(str)
 
     def __init__(self, hotkeys_getter: Callable[[], Dict[str, str]], parent=None):
         super().__init__(parent)

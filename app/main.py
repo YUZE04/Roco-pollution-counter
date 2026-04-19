@@ -7,36 +7,170 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import threading
+import traceback
+from datetime import datetime
+from pathlib import Path
 from typing import List, Tuple
+
+# ctypes 需要在 Windows 下很多地方用到（DPI、UAC、MessageBox），统一在顶层导入。
+if sys.platform == "win32":
+    import ctypes
+else:
+    ctypes = None  # type: ignore[assignment]
+
+from . import APP_VERSION
+
+
+# ---- 先装好崩溃日志，再 import 重型依赖 --------------------------------------
+# 这样即使 PyQt6 / controller / ui 在 import 阶段就炸了，也能落盘。
+
+def _early_runtime_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent.parent
+
+
+STARTUP_ERROR_LOG = _early_runtime_dir() / "startup_error.log"
+
+
+def _append_startup_error(title: str, details: str) -> None:
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    block = [
+        f"[{stamp}] {title}",
+        f"version={APP_VERSION}",
+        f"python={sys.version}",
+        f"frozen={getattr(sys, 'frozen', False)}",
+        f"executable={sys.executable}",
+        f"argv={sys.argv}",
+        details.rstrip(),
+        "",
+    ]
+    try:
+        with STARTUP_ERROR_LOG.open("a", encoding="utf-8") as fh:
+            fh.write("\n".join(block))
+    except Exception:
+        pass
+
+
+def _show_fatal_error(message: str) -> None:
+    if sys.platform != "win32" or ctypes is None:
+        return
+    try:
+        ctypes.windll.user32.MessageBoxW(0, message, "污染计数器 启动失败", 0x10)
+    except Exception:
+        pass
+
+
+def _install_crash_logging() -> None:
+    def _handle_exception(exc_type, exc_value, exc_tb):
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        _append_startup_error("Unhandled exception", details)
+        _show_fatal_error(
+            "程序启动时发生异常，已写入 startup_error.log。\n"
+            f"位置：{STARTUP_ERROR_LOG}"
+        )
+
+    def _handle_thread_exception(args):
+        details = "".join(
+            traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
+        )
+        thread_name = getattr(args.thread, "name", "unknown")
+        _append_startup_error(f"Unhandled thread exception [{thread_name}]", details)
+
+    sys.excepthook = _handle_exception
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = _handle_thread_exception
+
+
+# 模块一被加载就立刻生效（run_app.py 之外的入口也能受益，例如 py -m app.main）
+_install_crash_logging()
+
 
 # 抑制 "SetProcessDpiAwarenessContext() failed: 拒绝访问" 警告：
 # python.exe 的 manifest/父进程已经设过 DPI 了，告诉 Qt 别再动它。
 # 必须在 PyQt6 被 import 之前设置。
 os.environ.setdefault("QT_QPA_PLATFORM_WINDOWS_OPTIONS", "dpiawareness=0")
 # 再加一道保险：在 Qt 动手之前，自己先把进程的 DPI 感知设成 Per-Monitor v2
-if sys.platform == "win32":
+if sys.platform == "win32" and ctypes is not None:
     try:
-        import ctypes
         ctypes.windll.user32.SetProcessDpiAwarenessContext(
             ctypes.c_void_p(-4)  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
         )
     except Exception:
         pass
 
-from PyQt6.QtGui import QGuiApplication, QIcon
-from PyQt6.QtWidgets import QApplication
 
-from . import APP_VERSION
-from .backend.paths import find_icon
-from .controller import AppController
-from .ui.main_window import MainWindow
-from .ui.overlay import OverlayWindow
+# ---- 重型依赖：任何一个炸了都要记录到日志 ------------------------------------
+try:
+    from PyQt6.QtGui import QGuiApplication, QIcon
+    from PyQt6.QtWidgets import QApplication
+
+    from .backend.paths import RUNTIME_DIR, find_icon
+    from .controller import AppController
+    from .ui.main_window import MainWindow
+    from .ui.overlay import OverlayWindow
+except BaseException as _imp_err:  # noqa: BLE001
+    _append_startup_error(
+        "Top-level import failed in app.main",
+        traceback.format_exc(),
+    )
+    _show_fatal_error(
+        "加载依赖失败（通常是 PyQt6 / PaddleOCR 原生库未正确解压）：\n\n"
+        f"{type(_imp_err).__name__}: {_imp_err}\n\n"
+        f"详细日志：{STARTUP_ERROR_LOG}"
+    )
+    raise
+
+
+def ensure_run_as_administrator() -> bool:
+    """Windows：非管理员时请求 UAC 提权并重启当前入口。"""
+    if sys.platform != "win32":
+        return True
+    try:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            return True
+    except Exception:
+        return True
+
+    try:
+        if getattr(sys, "frozen", False):
+            executable = sys.executable
+            params = subprocess.list2cmdline(sys.argv[1:])
+        else:
+            executable = sys.executable
+            params = subprocess.list2cmdline(["-m", "app.main", *sys.argv[1:]])
+        result = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", executable, params or None, None, 1
+        )
+        if int(result) > 32:
+            return False
+    except Exception:
+        pass
+
+    try:
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "无法请求管理员权限，请右键选择“以管理员身份运行”。",
+            "需要管理员权限",
+            0x10,
+        )
+    except Exception:
+        pass
+    return False
 
 
 class Application:
     def __init__(self):
-        self.app = QApplication(sys.argv)
+        try:
+            self.app = QApplication(sys.argv)
+        except Exception as e:
+            _append_startup_error("QApplication initialization failed", 
+                                 f"Exception: {e}\nTraceback: {traceback.format_exc()}")
+            raise RuntimeError(f"无法初始化 Qt 应用：{e}") from e
+        
         self.app.setQuitOnLastWindowClosed(False)
         self.app.setApplicationName("污染计数器")
         self.app.setApplicationDisplayName(f"污染计数器 {APP_VERSION}")
@@ -46,11 +180,21 @@ class Application:
             self.app.setWindowIcon(QIcon(str(icon_path)))
 
         # 控制器（拥有后端状态）
-        self.controller = AppController()
+        try:
+            self.controller = AppController()
+        except Exception as e:
+            _append_startup_error("AppController initialization failed",
+                                 f"Exception: {e}\nTraceback: {traceback.format_exc()}")
+            raise RuntimeError(f"无法初始化应用控制器：{e}") from e
 
         # 两个窗口
-        self.main_window = MainWindow(controller=self.controller)
-        self.overlay = OverlayWindow()
+        try:
+            self.main_window = MainWindow(controller=self.controller)
+            self.overlay = OverlayWindow()
+        except Exception as e:
+            _append_startup_error("UI initialization failed",
+                                 f"Exception: {e}\nTraceback: {traceback.format_exc()}")
+            raise RuntimeError(f"无法初始化 UI：{e}") from e
 
         # 接线
         self._wire()
@@ -60,7 +204,9 @@ class Application:
         self._refresh_data()
         self._refresh_hotkey_hint()
         self.overlay.set_running(self.controller.running)
+        self.overlay.set_paused(self.controller.paused)
         self.overlay.set_locked(self.controller.locked)
+        self.main_window.set_paused_state(self.controller.paused)
 
     # ---------- 布局 ----------
 
@@ -106,6 +252,8 @@ class Application:
         c.status_text_changed.connect(self.main_window.set_status_text)
         c.running_changed.connect(self.overlay.set_running)
         c.running_changed.connect(self.main_window.set_monitor_button_text)
+        c.paused_changed.connect(self.overlay.set_paused)
+        c.paused_changed.connect(self.main_window.set_paused_state)
         c.locked_changed.connect(self.overlay.set_locked)
 
     # ---------- 动作 ----------
@@ -122,7 +270,7 @@ class Application:
     def _refresh_hotkey_hint(self):
         hk = self.controller.config.get("hotkeys", {})
         parts = []
-        labels = [("start", "启"), ("pause", "暂"), ("lock", "锁"), ("add", "+"), ("sub", "-")]
+        labels = [("start", "暂/继"), ("lock", "锁"), ("add", "+"), ("sub", "-")]
         for key, label in labels:
             val = str(hk.get(key, "")).strip()
             if val:
@@ -153,7 +301,45 @@ class Application:
 
 
 def main() -> int:
-    return Application().run()
+    """主入口。尽最大努力捕获和记录启动错误。"""
+    _install_crash_logging()
+    
+    # 首先尝试无管理员权限启动，让用户看到真实错误而不是因为权限失败导致的闪退
+    try:
+        if not ensure_run_as_administrator():
+            return 0
+    except Exception as e:
+        details = traceback.format_exc()
+        _append_startup_error("UAC elevation exception", details)
+        _show_fatal_error(
+            f"管理员权限请求失败：{e}\n\n"
+            f"请手动以管理员身份运行本程序。\n"
+            f"错误日志：{STARTUP_ERROR_LOG}"
+        )
+        return 1
+    
+    try:
+        return Application().run()
+    except ImportError as e:
+        details = traceback.format_exc()
+        _append_startup_error("Import error during startup", details)
+        error_msg = (
+            f"模块导入失败：{e}\n\n"
+            f"这通常表示某个依赖库缺失或损坏。\n"
+            f"请重新下载最新版本。\n\n"
+            f"错误日志：{STARTUP_ERROR_LOG}"
+        )
+        _show_fatal_error(error_msg)
+        return 1
+    except Exception as e:
+        details = traceback.format_exc()
+        _append_startup_error("Fatal startup exception", details)
+        error_msg = (
+            f"程序启动失败：{type(e).__name__}\n\n{str(e)}\n\n"
+            f"完整错误日志已保存到：\n{STARTUP_ERROR_LOG}"
+        )
+        _show_fatal_error(error_msg)
+        return 1
 
 
 if __name__ == "__main__":

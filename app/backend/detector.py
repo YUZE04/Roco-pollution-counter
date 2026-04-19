@@ -109,6 +109,11 @@ class DetectorThread(QThread):
                         last_paused_state = False
 
                     cfg = self._get_cfg()
+                    
+                    # 运行时刷新窗口位置，避免窗口移动后坐标失效
+                    from .window_detect import refresh_window_offset
+                    refresh_window_offset(cfg)
+                    
                     middle_region = dict(cfg["middle_region"])
                     bright_threshold = max(80, min(245, int(cfg.get("middle_bright_threshold", 170))))
                     white_pixels_threshold = max(1, int(cfg.get("middle_white_pixels_threshold", 45)))
@@ -257,7 +262,10 @@ class DetectorThread(QThread):
                 "width": int(name_bgr.shape[1]),
                 "height": int(name_bgr.shape[0]),
             }
-            mode_list = cfg.get("header_ocr_modes", [[4, "binary"], [3, "gray"]])
+            mode_list = list(cfg.get("header_ocr_modes", [[4, "binary"], [3, "gray"]]))
+            for extra_mode in ([4, "clahe"], [5, "binary"]):
+                if extra_mode not in mode_list:
+                    mode_list.append(extra_mode)
             all_results: List[dict] = []
             for item in mode_list:
                 if not isinstance(item, (list, tuple)) or len(item) != 2:

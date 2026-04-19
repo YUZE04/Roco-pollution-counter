@@ -6,6 +6,7 @@ import json
 import urllib.error
 import urllib.request
 import webbrowser
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
@@ -13,6 +14,7 @@ from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -49,8 +51,7 @@ except Exception:
 
 
 HOTKEY_ACTIONS = [
-    ("start", "启/停监测"),
-    ("pause", "暂停/继续"),
+    ("start", "暂停/继续"),
     ("add", "+污（手动）"),
     ("sub", "-污（手动）"),
     ("lock", "锁定/解锁悬浮窗"),
@@ -105,6 +106,8 @@ class MainWindow(QMainWindow):
 
         self._controller = controller
         self._suppress_item_changed = False
+        self._running = False
+        self._paused = False
         self.setWindowTitle(f"污染计数器 {APP_VERSION}")
         self.resize(720, 600)
         # 纯色深紫背景（稳定版）
@@ -200,15 +203,28 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    def set_monitor_button_text(self, running: bool) -> None:
-        if running:
+    def _sync_monitor_state_ui(self) -> None:
+        if self._running:
             self.btn_toggle_monitor.setText("停止监测")
             self.btn_toggle_monitor.set_icon_name("stop")
-            self.lbl_state_pill.set_state("监测中", theme.FG_SUCCESS)
+            if self._paused:
+                self.lbl_state_pill.set_state("已暂停", theme.FG_WARNING)
+            else:
+                self.lbl_state_pill.set_state("监测中", theme.FG_SUCCESS)
         else:
             self.btn_toggle_monitor.setText("开始监测")
             self.btn_toggle_monitor.set_icon_name("play")
             self.lbl_state_pill.set_state("未启动", theme.FG_DIM)
+
+    def set_monitor_button_text(self, running: bool) -> None:
+        self._running = bool(running)
+        if not self._running:
+            self._paused = False
+        self._sync_monitor_state_ui()
+
+    def set_paused_state(self, paused: bool) -> None:
+        self._paused = bool(paused) and bool(self._running)
+        self._sync_monitor_state_ui()
 
     def set_status_text(self, text: str) -> None:
         self.lbl_status.setText(text)
@@ -216,7 +232,7 @@ class MainWindow(QMainWindow):
         if not text:
             return
         t = text.strip()
-        persistent_prefixes = ("监测中", "未启动", "正在加载", "OCR 已就绪")
+        persistent_prefixes = ("监测中", "未启动", "已暂停", "正在加载", "OCR 已就绪")
         if any(t.startswith(p) for p in persistent_prefixes):
             return
         # 选合适的图标
@@ -373,6 +389,25 @@ class MainWindow(QMainWindow):
 
         v.addWidget(gb_res)
 
+        # 数据迁移
+        gb_data = QGroupBox("数据迁移")
+        data_layout = QFormLayout(gb_data)
+        self.btn_import_count = IconButton("导入旧版 count 文件", icon="refresh")
+        self.btn_import_count.clicked.connect(self._on_import_count_file)
+        self.lbl_import_count = QLabel("选择旧版 pollution_count.json，替换到当前新版本统计；会自动备份现有数据。")
+        self.lbl_import_count.setWordWrap(True)
+        self.lbl_import_count.setStyleSheet(
+            f"color:{theme.FG_DIM};background:transparent;padding-left:6px;"
+        )
+        import_row = QHBoxLayout()
+        import_row.addWidget(self.btn_import_count)
+        import_row.addWidget(self.lbl_import_count, 1)
+        import_wrap = QWidget()
+        import_wrap.setLayout(import_row)
+        data_layout.addRow("旧版统计:", import_wrap)
+
+        v.addWidget(gb_data)
+
         # 检测参数
         gb_det = QGroupBox("检测参数")
         det_layout = QFormLayout(gb_det)
@@ -424,6 +459,42 @@ class MainWindow(QMainWindow):
             return
         self._controller.config["paddleocr_model_dir"] = self.le_model_dir.text().strip() or "paddleocr_models"
         self._controller.mark_config_dirty()
+
+    def _on_import_count_file(self):
+        if self._controller is None:
+            return
+
+        start_dir = ""
+        try:
+            start_dir = str(Path.cwd())
+        except Exception:
+            pass
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择旧版 pollution_count.json",
+            start_dir,
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "确认导入旧版统计",
+            "这会用你选择的旧版 count 文件替换当前新版本统计数据。\n"
+            "当前数据会先自动备份，然后再导入。\n\n"
+            f"文件：\n{file_path}",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        ok, msg = self._controller.import_count_file(file_path)
+        if not ok:
+            QMessageBox.warning(self, "导入失败", msg)
+            return
+
+        QMessageBox.information(self, "导入完成", msg)
 
     def _on_cooldown_changed(self, v: float):
         if self._controller is None:
@@ -681,6 +752,13 @@ class MainWindow(QMainWindow):
         v.addWidget(title)
 
         v.addWidget(QLabel("洛克王国世界污染追踪桌面工具（PyQt6 重写版）。"))
+
+        author_lbl = QLabel(
+            "作者：<b>小丑鱼</b>　抖音号：<b>conflicto834</b>"
+        )
+        author_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        author_lbl.setStyleSheet(f"color:{theme.FG_SPECIES};")
+        v.addWidget(author_lbl)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
+from pathlib import Path
 from typing import Any, Dict
 
 from PyQt6.QtCore import QObject, QTimer
@@ -19,6 +21,7 @@ def _empty_payload() -> Dict[str, Any]:
         "daily_totals": {},
         "daily_species": {},
         "species_total_counts": {},
+        "last_species": "无",
     }
 
 
@@ -40,22 +43,36 @@ class PollutionData(QObject):
 
     # ---------- 磁盘 ----------
 
+    @staticmethod
+    def _normalize_payload(payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("文件内容不是有效的统计 JSON 对象")
+
+        d: Dict[str, Any] = dict(payload)
+
+        try:
+            d["count"] = max(0, int(d.get("count", 0)))
+        except Exception:
+            d["count"] = 0
+
+        for key in ("species_counts", "daily_totals", "daily_species", "species_total_counts"):
+            if not isinstance(d.get(key), dict):
+                d[key] = {}
+
+        d["last_species"] = str(d.get("last_species", "无") or "无")
+
+        if not d["species_total_counts"]:
+            d["species_total_counts"] = aggregate_species_totals(
+                d.get("daily_species", {}), d.get("species_counts", {})
+            )
+
+        return d
+
     def _load(self) -> Dict[str, Any]:
         if SAVE_FILE.exists():
             try:
                 d = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
-                if not isinstance(d, dict):
-                    return _empty_payload()
-                d.setdefault("count", 0)
-                d.setdefault("species_counts", {})
-                d.setdefault("daily_totals", {})
-                d.setdefault("daily_species", {})
-                d.setdefault("species_total_counts", {})
-                if not d["species_total_counts"]:
-                    d["species_total_counts"] = aggregate_species_totals(
-                        d.get("daily_species", {}), d.get("species_counts", {})
-                    )
-                return d
+                return self._normalize_payload(d)
             except Exception:
                 pass
         return _empty_payload()
@@ -80,6 +97,44 @@ class PollutionData(QObject):
             return
         if not self._save_timer.isActive():
             self._save_timer.start(self.SAVE_THROTTLE_MS)
+
+    def replace_from_file(self, source_path: str | Path) -> Dict[str, Any]:
+        source = Path(source_path).expanduser()
+        if not source.exists():
+            raise FileNotFoundError(f"文件不存在：{source}")
+        if not source.is_file():
+            raise ValueError(f"不是文件：{source}")
+
+        try:
+            raw = json.loads(source.read_text(encoding="utf-8"))
+        except UnicodeDecodeError:
+            raw = json.loads(source.read_text(encoding="utf-8-sig"))
+
+        new_data = self._normalize_payload(raw)
+
+        backup_path: Path | None = None
+        if SAVE_FILE.exists():
+            try:
+                if source.resolve() != SAVE_FILE.resolve():
+                    backup_path = SAVE_FILE.with_name(
+                        f"{SAVE_FILE.stem}.backup_{time.strftime('%Y%m%d_%H%M%S')}{SAVE_FILE.suffix}"
+                    )
+                    shutil.copy2(SAVE_FILE, backup_path)
+            except Exception:
+                backup_path = None
+
+        self._save_timer.stop()
+        self._data = new_data
+        self._dirty = True
+        self._flush()
+
+        return {
+            "source_path": str(source),
+            "backup_path": str(backup_path) if backup_path else "",
+            "count": int(new_data.get("count", 0)),
+            "species_total": len(new_data.get("species_total_counts", {})),
+            "day_total": len(new_data.get("daily_totals", {})),
+        }
 
     # ---------- 属性 ----------
 
@@ -134,29 +189,47 @@ class PollutionData(QObject):
         sc[name] = int(today_map[name])
         self.save()
 
-    def manual_add(self) -> bool:
+    def preferred_species(self) -> str:
+        """挑一个"当前精灵"的回退：last_species → 今日榜首 → 累计榜首。找不到返回空串。"""
         last = clean_pet_name(self.last_species)
-        if not last or last == "未识别":
+        if last and last not in ("未识别", "无"):
+            return last
+        today_map = self.species_counts
+        if today_map:
+            # 选今日出现次数最多的
+            return max(today_map.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        stc = self.species_total_counts
+        if stc:
+            return max(stc.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        return ""
+
+    def manual_add(self, species: str | None = None) -> bool:
+        """手动 +1。若未指定 species，使用 `preferred_species()` 回退。"""
+        name = clean_pet_name(species) if species else self.preferred_species()
+        if not name or name == "未识别":
             return False
-        self.increment(last)
+        self.increment(name)
         return True
 
-    def manual_sub(self) -> bool:
+    def manual_sub(self, species: str | None = None) -> bool:
+        """手动 -1。若未指定 species，使用 `preferred_species()` 回退。"""
         self._ensure_today()
         day = today_str()
-        last = clean_pet_name(self.last_species)
-        if not last or last == "未识别":
+        name = clean_pet_name(species) if species else self.preferred_species()
+        if not name or name == "未识别":
             return False
         today_map = self._data["daily_species"].get(day, {})
-        if today_map.get(last, 0) <= 0:
+        if today_map.get(name, 0) <= 0:
             return False
-        today_map[last] = max(0, int(today_map.get(last, 0)) - 1)
+        today_map[name] = max(0, int(today_map.get(name, 0)) - 1)
         self._data["daily_totals"][day] = max(0, int(self._data["daily_totals"].get(day, 0)) - 1)
         stc = self._data.setdefault("species_total_counts", {})
-        if stc.get(last, 0) > 0:
-            stc[last] = max(0, int(stc.get(last, 0)) - 1)
+        if stc.get(name, 0) > 0:
+            stc[name] = max(0, int(stc.get(name, 0)) - 1)
         self._data["count"] = int(self._data["daily_totals"][day])
-        self._data.setdefault("species_counts", {})[last] = int(today_map[last])
+        self._data.setdefault("species_counts", {})[name] = int(today_map[name])
+        # 把它记为"当前精灵"，连续手动±更顺手
+        self._data["last_species"] = name
         self.save()
         return True
 

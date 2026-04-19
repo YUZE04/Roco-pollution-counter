@@ -7,7 +7,7 @@ import time
 from typing import Any, Dict
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from .backend import config as cfg_mod
 from .backend.data import PollutionData
@@ -33,12 +33,18 @@ class AppController(QObject):
         self._data = PollutionData(self)
 
         # OCR 只构造，不预加载
-        self._ocr = LocalPaddleOCRReader(config_getter=lambda: self._config)
+        try:
+            self._ocr = LocalPaddleOCRReader(config_getter=lambda: self._config)
+        except Exception as e:
+            raise RuntimeError(f"OCR 初始化失败：{e}") from e
 
         # 热键线程：常驻
-        self._hotkeys = HotkeyThread(hotkeys_getter=lambda: self._config.get("hotkeys", {}))
-        self._hotkeys.hotkey_triggered.connect(self._on_hotkey)
-        self._hotkeys.start()
+        try:
+            self._hotkeys = HotkeyThread(hotkeys_getter=lambda: self._config.get("hotkeys", {}))
+            self._hotkeys.hotkey_triggered.connect(self._on_hotkey)
+            self._hotkeys.start()
+        except Exception as e:
+            raise RuntimeError(f"热键线程启动失败：{e}") from e
 
         # 检测线程：按需启动
         self._detector: DetectorThread | None = None
@@ -111,15 +117,18 @@ class AppController(QObject):
         self._detector.finished.connect(self._on_detector_finished)
         self._detector.start()
         self.running_changed.emit(True)
+        self.paused_changed.emit(False)
 
     def stop_monitor(self) -> None:
         if not self._running:
             return
         self._running = False
+        self._paused = False
         if self._detector is not None:
             self._detector.request_stop()
             # 不阻塞，finished 会触发清理
         self.running_changed.emit(False)
+        self.paused_changed.emit(False)
 
     def toggle_pause(self) -> None:
         if not self._running:
@@ -127,6 +136,7 @@ class AppController(QObject):
         self._paused = not self._paused
         if self._detector is not None:
             self._detector.set_paused(self._paused)
+        self.status_text_changed.emit("已暂停" if self._paused else "监测中")
         self.paused_changed.emit(self._paused)
 
     # ---------- 锁定 ----------
@@ -148,21 +158,83 @@ class AppController(QObject):
     # ---------- 数据操作 ----------
 
     def manual_add(self) -> None:
+        # 先试默认回退：last_species → 今日榜首 → 累计榜首
         if self._data.manual_add():
             self.data_changed.emit()
+            return
+        # 没有任何精灵信息：弹输入框让用户临时指定一个
+        name = self._prompt_species_name("手动 +1：请输入精灵名字")
+        if not name:
+            self.status_text_changed.emit("已取消手动加")
+            return
+        if self._data.manual_add(species=name):
+            self.data_changed.emit()
         else:
-            self.status_text_changed.emit("没有上一只精灵，无法手动加")
+            self.status_text_changed.emit("无法识别该名字")
 
     def reset_today(self) -> None:
         self._data.reset_today()
         self.data_changed.emit()
         self.status_text_changed.emit("今日统计已清空")
 
+    def import_count_file(self, file_path: str) -> tuple[bool, str]:
+        try:
+            if self._running:
+                self.stop_monitor()
+            result = self._data.replace_from_file(file_path)
+        except Exception as e:
+            return False, f"导入失败：{e}"
+
+        self.data_changed.emit()
+        self.status_text_changed.emit("已导入旧版统计")
+
+        summary = (
+            f"已导入：{result['source_path']}\n"
+            f"总污染数：{result['count']}\n"
+            f"累计精灵条目：{result['species_total']}\n"
+            f"每日记录数：{result['day_total']}"
+        )
+        if result.get("backup_path"):
+            summary += f"\n已备份当前数据到：{result['backup_path']}"
+        return True, summary
+
     def manual_sub(self) -> None:
         if self._data.manual_sub():
             self.data_changed.emit()
+            return
+        # 回退失败：弹输入框指定
+        name = self._prompt_species_name("手动 -1：请输入精灵名字")
+        if not name:
+            self.status_text_changed.emit("已取消手动减")
+            return
+        if self._data.manual_sub(species=name):
+            self.data_changed.emit()
         else:
-            self.status_text_changed.emit("没有可减的数量")
+            self.status_text_changed.emit(f"「{name}」没有可减的数量")
+
+    def _prompt_species_name(self, prompt: str) -> str:
+        """弹输入框让用户输入精灵名。带历史下拉候选。返回空串表示取消。"""
+        # 候选：今日 + 累计里出现过的精灵
+        candidates: list[str] = []
+        for src in (self._data.species_counts, self._data.species_total_counts):
+            for k in src.keys():
+                if k and k not in candidates:
+                    candidates.append(k)
+        default = candidates[0] if candidates else ""
+        try:
+            if candidates:
+                text, ok = QInputDialog.getItem(
+                    None, "污染计数器", prompt, candidates, 0, True
+                )
+            else:
+                text, ok = QInputDialog.getText(
+                    None, "污染计数器", prompt, text=default
+                )
+        except Exception:
+            return ""
+        if not ok:
+            return ""
+        return (text or "").strip()
 
     # ---- 统计修改（由"编辑统计"对话框调用）----
 
@@ -218,6 +290,8 @@ class AppController(QObject):
 
     def _on_species_detected(self, clean_name: str, middle_text: str) -> None:
         name = clean_pet_name(clean_name)
+        # 应用用户/默认别名表修正 OCR 常见误识别
+        name = self._apply_name_alias(name)
         unknown = self._config.get("unknown_species_name", "未识别")
         if name == unknown:
             self.status_text_changed.emit(f"命中但未识别: {middle_text[:18]}")
@@ -258,15 +332,29 @@ class AppController(QObject):
     def _on_detector_finished(self) -> None:
         self._detector = None
 
+    def _apply_name_alias(self, name: str) -> str:
+        """根据 config.ocr_name_aliases 把 OCR 常见误识别映射到真实名字。"""
+        if not name:
+            return name
+        aliases = self._config.get("ocr_name_aliases") or {}
+        if not isinstance(aliases, dict):
+            return name
+        mapped = aliases.get(name)
+        if isinstance(mapped, str) and mapped.strip():
+            return mapped.strip()
+        return name
+
     def _on_hotkey(self, action: str) -> None:
         if action == "add":
             self.manual_add()
         elif action == "sub":
             self.manual_sub()
-        elif action == "start":
-            self.toggle_monitor()
-        elif action == "pause":
-            self.toggle_pause()
+        elif action in ("start", "pause"):
+            # 两个动作现在都只做暂停/继续；"开始监测"请走主窗口按钮或悬浮窗右键菜单。
+            if self._running:
+                self.toggle_pause()
+            else:
+                self.status_text_changed.emit("请先在主窗口点击「开始监测」")
         elif action == "lock":
             self.toggle_lock()
 

@@ -71,6 +71,7 @@ class OverlayWindow(QWidget):
         self._status_text: str = "未启动"
         self._species_list: list[tuple[str, int]] = []
         self._running: bool = False
+        self._paused: bool = False
         self._locked: bool = False
         self._hotkey_hint: str = ""
         self._pulse_phase: float = 0.0         # 0..1 的呼吸相位
@@ -84,7 +85,7 @@ class OverlayWindow(QWidget):
         # 动效：状态点呼吸（监测中时活跃）
         def _on_phase(ph: float) -> None:
             self._pulse_phase = ph
-            if self._running:
+            if self._running and not self._paused:
                 self.update()
         self._pulser = pulse_signal(self, 1600, _on_phase)
 
@@ -145,6 +146,12 @@ class OverlayWindow(QWidget):
 
     def set_running(self, running: bool) -> None:
         self._running = bool(running)
+        if not self._running:
+            self._paused = False
+        self.update()
+
+    def set_paused(self, paused: bool) -> None:
+        self._paused = bool(paused) and bool(self._running)
         self.update()
 
     def set_locked(self, locked: bool) -> None:
@@ -194,9 +201,14 @@ class OverlayWindow(QWidget):
         painter.drawPath(path)
 
         # 标题栏：呼吸状态点 + 状态文本
-        status_color = QColor(theme.FG_SUCCESS) if self._running else QColor("#888")
+        if self._paused:
+            status_color = QColor(theme.FG_WARNING)
+        elif self._running:
+            status_color = QColor(theme.FG_SUCCESS)
+        else:
+            status_color = QColor("#888")
         dot_cx, dot_cy = 20, 20
-        if self._running:
+        if self._running and not self._paused:
             halo_r = 10 + 6 * self._pulse_phase
             halo = QRadialGradient(dot_cx, dot_cy, halo_r)
             glow = QColor(status_color)
@@ -213,7 +225,9 @@ class OverlayWindow(QWidget):
 
         painter.setPen(QColor(theme.FG_DIM))
         painter.setFont(QFont(theme.FONT_FAMILY, 9))
-        status_text = self._status_text or ("监测中" if self._running else "未启动")
+        status_text = self._status_text or (
+            "已暂停" if self._paused else ("监测中" if self._running else "未启动")
+        )
         text_x = 30
         if self._locked:
             painter.drawPixmap(text_x, 13, self._icon_lock)

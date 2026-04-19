@@ -13,8 +13,6 @@ import ctypes
 import ctypes.wintypes
 from typing import Any, Dict, Optional
 
-from .utils import apply_resolution_preset
-
 
 GAME_TITLES = ("洛克王国", "Roco", "roco", "Kingdom", "kingdom")
 
@@ -102,22 +100,47 @@ def _offset_region(region: Dict[str, int], ox: int, oy: int) -> Dict[str, int]:
     return r
 
 
-def apply_game_window(cfg: Dict[str, Any], info: Dict[str, Any]) -> str:
-    """按窗口信息调整 cfg：套分辨率预设 + 叠加窗口偏移。返回描述。"""
-    w, h = int(info["w"]), int(info["h"])
-    ox, oy = int(info["x"]), int(info["y"])
-
-    preset_key = f"{w}x{h}"
-    mode = apply_resolution_preset(cfg, preset_key)
-
-    # 保存偏移，供重新应用预设时参考
+def _store_window_meta(cfg: Dict[str, Any], ox: int, oy: int, w: int, h: int) -> None:
     cfg["window_offset"] = {"x": ox, "y": oy, "w": w, "h": h}
     cfg["window_client_size"] = {"w": w, "h": h}
 
-    # 叠加偏移到 middle / header（name_in_header 是相对头部区域的，不叠加）
+
+def _apply_window_regions(cfg: Dict[str, Any], base_regions: Dict[str, Dict[str, int]], ox: int, oy: int) -> None:
     for key in ("middle_region", "header_region"):
-        region = cfg.get(key)
+        region = base_regions.get(key)
         if isinstance(region, dict):
             cfg[key] = _offset_region(region, ox, oy)
+    name_region = base_regions.get("name_in_header")
+    if isinstance(name_region, dict):
+        cfg["name_in_header"] = dict(name_region)
 
+
+def apply_game_window(cfg: Dict[str, Any], info: Dict[str, Any]) -> str:
+    """按窗口信息调整 cfg：套分辨率预设并叠加窗口偏移。"""
+    from .utils import apply_resolution_preset
+    ox, oy = int(info["x"]), int(info["y"])
+    w, h = int(info["w"]), int(info["h"])
+    _store_window_meta(cfg, ox, oy, w, h)
+    mode, base_regions = apply_resolution_preset(cfg, f"{w}x{h}", apply_to_cfg=False)
+    _apply_window_regions(cfg, base_regions, ox, oy)
+    cfg["active_resolution"] = f"{w}x{h}"
     return mode
+
+
+def refresh_window_offset(cfg: Dict[str, Any]) -> bool:
+    """运行时刷新窗口位置，避免拖动后坐标失效。返回是否成功更新。"""
+    from .utils import apply_resolution_preset
+    info = find_game_window()
+    if not info:
+        return False
+    try:
+        ox, oy = int(info["x"]), int(info["y"])
+        w, h = int(info["w"]), int(info["h"])
+
+        _store_window_meta(cfg, ox, oy, w, h)
+        _mode, base_regions = apply_resolution_preset(cfg, f"{w}x{h}", apply_to_cfg=False)
+        _apply_window_regions(cfg, base_regions, ox, oy)
+
+        return True
+    except Exception:
+        return False
