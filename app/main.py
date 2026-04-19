@@ -220,8 +220,9 @@ class Application:
         x = cfg_overlay.get("x")
         y = cfg_overlay.get("y")
         if not isinstance(x, int) or not isinstance(y, int):
+            # 默认：屏幕右侧垂直居中
             x = geo.x() + geo.width() - ow - 20
-            y = geo.y() + 80
+            y = geo.y() + (geo.height() - oh) // 2
         self.overlay.move(int(x), int(y))
 
     # ---------- 信号接线 ----------
@@ -243,6 +244,7 @@ class Application:
         o.show_main_requested.connect(self._show_main)
         o.manual_add_requested.connect(c.manual_add)
         o.manual_sub_requested.connect(c.manual_sub)
+        o.reset_position_requested.connect(self._reset_overlay_position)
         o.quit_requested.connect(self._quit)
 
         # 控制器 → UI
@@ -257,6 +259,26 @@ class Application:
         c.locked_changed.connect(self.overlay.set_locked)
 
     # ---------- 动作 ----------
+
+    def _reset_overlay_position(self):
+        """一键复位到屏幕右侧垂直居中，并清掉保存的坐标。"""
+        screen = QGuiApplication.primaryScreen()
+        if not screen:
+            return
+        geo = screen.availableGeometry()
+        ow, oh = self.overlay.width(), self.overlay.height()
+        x = geo.x() + geo.width() - ow - 20
+        y = geo.y() + (geo.height() - oh) // 2
+        self.overlay.move(int(x), int(y))
+        cfg = self.controller.config
+        cw = cfg.setdefault("compact_window", {})
+        cw["x"] = None
+        cw["y"] = None
+        try:
+            from .backend import config as cfg_mod
+            cfg_mod.save_config(cfg)
+        except Exception:
+            pass
 
     def _show_overlay(self):
         self.overlay.show()

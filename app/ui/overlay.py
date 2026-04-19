@@ -46,6 +46,7 @@ class OverlayWindow(QWidget):
     show_main_requested = pyqtSignal()
     manual_add_requested = pyqtSignal()
     manual_sub_requested = pyqtSignal()
+    reset_position_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None):
@@ -330,12 +331,14 @@ class OverlayWindow(QWidget):
         act_add.triggered.connect(self.manual_add_requested.emit)
         act_sub = QAction(get_icon("minus", 14, theme.FG_TEXT), "手动减一次", self)
         act_sub.triggered.connect(self.manual_sub_requested.emit)
+        act_reset = QAction(get_icon("refresh", 14, theme.FG_TEXT), "复位到右侧居中", self)
+        act_reset.triggered.connect(self.reset_position_requested.emit)
         act_main = QAction(get_icon("settings", 14, theme.FG_TEXT), "打开主窗口 / 设置", self)
         act_main.triggered.connect(self.show_main_requested.emit)
         act_quit = QAction(get_icon("power", 14, theme.FG_DANGER), "退出程序", self)
         act_quit.triggered.connect(self.quit_requested.emit)
 
-        for a in (act_lock, act_toggle, act_add, act_sub, act_main, act_quit):
+        for a in (act_lock, act_toggle, act_add, act_sub, act_reset, act_main, act_quit):
             menu.addAction(a)
 
         menu.exec(QCursor.pos())
