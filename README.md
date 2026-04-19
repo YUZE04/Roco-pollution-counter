@@ -58,7 +58,10 @@ A lightweight Windows overlay that **auto-counts world-pollution events in Roco 
 
 <div align="center">
 
-### 👉 [点这里下载最新 Release](https://github.com/YUZE04/Roco-pollution-counter/releases/latest) 👈
+| 渠道 | 链接 |
+|:-:|:--|
+| � **GitHub Release（推荐）** | [点这里下载最新版](https://github.com/YUZE04/Roco-pollution-counter/releases/latest) |
+| ☁️ **夸克网盘（国内直连快）** | <https://pan.quark.cn/s/bfb62d2ee3f0> |
 
 </div>
 
