@@ -9,7 +9,7 @@ from pathlib import Path
 os.chdir(Path(__file__).parent)
 
 print("=" * 70)
-print("污染计数器 v1.2.2 - PyInstaller 打包")
+print("污染计数器 v1.2.5 - PyInstaller 打包")
 print("=" * 70)
 print()
 
@@ -50,7 +50,7 @@ try:
     print("=" * 70)
     print()
     print("输出位置:")
-    print("  dist/污染计数器v1.2.2/污染计数器v1.2.2.exe")
+    print("  dist/污染计数器v1.2.5/污染计数器v1.2.5.exe")
     print()
     
 except SystemExit as e:
@@ -62,7 +62,7 @@ except SystemExit as e:
         print("=" * 70)
         print()
         print("输出位置:")
-        print("  dist/污染计数器v1.2.2/污染计数器v1.2.2.exe")
+        print("  dist/污染计数器v1.2.5/污染计数器v1.2.5.exe")
         print()
     else:
         print("-" * 70)

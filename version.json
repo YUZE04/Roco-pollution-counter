@@ -1,15 +1,15 @@
 {
-  "version": "v1.2.4",
-  "title": "污染计数器 v1.2.4 — 一键打开主页面 / 中文路径支持优化",
+  "version": "v1.2.5",
+  "title": "污染计数器 v1.2.5 — 分辨率适配增强 / 跨天累计 / 异色存档",
   "notes": [
-    "新增热键：按 0 可快速打开主配置窗口（已集成到系统，可在设置中自定义）",
-    "中文路径优化：改进 PaddleOCR 在中文路径下的识别，自动适配中文路径环境",
-    "启动诊断：在其他电脑上"打不开"时，exe 同级目录会自动生成 startup_error.log（含 faulthandler），方便远程定位",
-    "新增 OCR 别名表：默认把误识别「曙光瑜瑜」修正为「噬光嗡嗡」，可在 pollution_config.json 的 ocr_name_aliases 自定义",
-    "手动 +/- 在没有当前精灵时不再失败：自动回退到今日/累计榜首，仍没有会弹输入框让你指定名字并提供历史候选"
+    "分辨率适配增强：新增 1280x960 预设，并支持把 4K / 2K / 1080p 等常见别名自动识别成对应分辨率",
+    "累计逻辑调整：顶部总数改为累计污染数，不会因为跨天自动清零；每日统计仍保留在历史表里",
+    "新增异色后存档并清空：可按单个精灵把当前累计写入 shiny_records，再把该精灵从当前统计中清空",
+    "今日清空逻辑优化：清空今日时只移除当天明细，并同步扣减当前累计，避免误以为整档重置",
+    "保留原有 OCR 别名、自定义热键和启动诊断能力，升级后旧配置会自动补齐新版默认项"
   ],
-  "download_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.2.4/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8v1.2.4.zip",
+  "download_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/download/v1.2.5/%E6%B1%A1%E6%9F%93%E8%AE%A1%E6%95%B0%E5%99%A8v1.2.5.zip",
   "download_url_quark": "https://pan.quark.cn/s/bfb62d2ee3f0",
-  "release_page": "https://github.com/YUZE04/Roco-pollution-counter/releases/tag/v1.2.4",
+  "release_page": "https://github.com/YUZE04/Roco-pollution-counter/releases/tag/v1.2.5",
   "force": false
 }

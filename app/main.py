@@ -257,6 +257,7 @@ class Application:
         c.paused_changed.connect(self.overlay.set_paused)
         c.paused_changed.connect(self.main_window.set_paused_state)
         c.locked_changed.connect(self.overlay.set_locked)
+        c.show_main_requested.connect(self._show_main)
 
     # ---------- 动作 ----------
 
@@ -285,14 +286,17 @@ class Application:
         self.overlay.raise_()
 
     def _show_main(self):
-        self.main_window.show()
+        if self.main_window.isMinimized():
+            self.main_window.showNormal()
+        else:
+            self.main_window.show()
         self.main_window.raise_()
         self.main_window.activateWindow()
 
     def _refresh_hotkey_hint(self):
         hk = self.controller.config.get("hotkeys", {})
         parts = []
-        labels = [("start", "暂/继"), ("lock", "锁"), ("add", "+"), ("sub", "-")]
+        labels = [("start", "暂/继"), ("show_main", "主"), ("lock", "锁"), ("add", "+"), ("sub", "-")]
         for key, label in labels:
             val = str(hk.get(key, "")).strip()
             if val:
@@ -303,8 +307,8 @@ class Application:
         d = self.controller.data
         self.overlay.set_total_count(d.total_count)
         self.overlay.set_current_species(d.last_species or "无")
-        # 精灵列表：按今日计数降序
-        today_counts = d.species_counts
+        # 精灵列表：右侧悬浮窗始终显示累计精灵数据，不按天拆分。
+        today_counts = d.species_total_counts
         items: List[Tuple[str, int]] = sorted(
             today_counts.items(), key=lambda kv: (-kv[1], kv[0])
         )

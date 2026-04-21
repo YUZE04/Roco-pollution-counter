@@ -256,7 +256,7 @@ class OverlayWindow(QWidget):
             painter.setPen(QColor(theme.FG_DIM))
             painter.drawText(tip_x, cap_y + 13, tip_text)
 
-        # 大数字：今日总污染数（动画值）
+        # 大数字：累计污染数（动画值）
         painter.setPen(QColor(theme.FG_COUNT))
         font_big = QFont(theme.FONT_FAMILY, 30, QFont.Weight.Bold)
         font_big.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, -1.0)

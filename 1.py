@@ -1,4 +1,4 @@
-import cv2
+﻿import cv2
 import csv
 import json
 import os
@@ -654,7 +654,7 @@ DEFAULT_CONFIG = {
     "header_ocr_modes": [[4, "binary"], [3, "gray"]],
     "name_read_delay": 0.0,
     "drag_bar_height": 32,
-    "app_version": "v1.1.2",
+    "app_version": "v1.2.5",
     "update_info_url": "https://raw.githubusercontent.com/YUZE04/Roco-pollution-counter/main/version.json",
     "github_api_latest_url": "https://api.github.com/repos/YUZE04/Roco-pollution-counter/releases/latest",
     "release_page_url": "https://github.com/YUZE04/Roco-pollution-counter/releases/latest",
@@ -2124,7 +2124,7 @@ class App:
 
 
     def get_current_version(self):
-        return str(self.config_data.get("app_version", "v1.1.2"))
+        return str(self.config_data.get("app_version", "v1.2.5"))
 
     def compare_versions(self, current, latest):
         def parse(v):

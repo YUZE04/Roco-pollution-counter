@@ -6,7 +6,7 @@
 
 > **洛克王国世界污染追踪桌面工具** · 悬浮窗 + OCR 自动计数 + 全局热键
 
-[![Version](https://img.shields.io/badge/version-v1.2.3-8B5CF6?style=flat-square)](https://github.com/YUZE04/Roco-pollution-counter/releases/latest)
+[![Version](https://img.shields.io/badge/version-v1.2.5-8B5CF6?style=flat-square)](https://github.com/YUZE04/Roco-pollution-counter/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/YUZE04/Roco-pollution-counter/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?style=flat-square&logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
@@ -60,15 +60,15 @@ A lightweight Windows overlay that **auto-counts world-pollution events in Roco 
 
 | 渠道 | 链接 |
 |:-:|:--|
-| � **GitHub Release（推荐）** | [点这里下载最新版](https://github.com/YUZE04/Roco-pollution-counter/releases/latest) |
+| 📦 **GitHub Release（推荐）** | [点这里下载最新版](https://github.com/YUZE04/Roco-pollution-counter/releases/latest) |
 | ☁️ **夸克网盘（国内直连快）** | <https://pan.quark.cn/s/bfb62d2ee3f0> |
 
 </div>
 
-- **解压后** 双击 `污染计数器v1.2.3.exe` 即可运行（建议 **以管理员身份运行**）。
+- **解压后** 双击 `污染计数器v1.2.5.exe` 即可运行（建议 **以管理员身份运行**）。
 - 解压路径避开只读目录（如 `Program Files`）；桌面 / D 盘自建文件夹最稳。
 - 打不开？先装 [VC++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)，再把 exe 加入杀软白名单。
-- 仍然打不开？把 exe 同级目录下的 `startup_error.log` 发给作者 🩺
+- 仍然打不开？把 exe 同级目录下的 `startup_error.log` 附到 GitHub Issue 里 🩺
 
 ---
 
@@ -79,6 +79,7 @@ A lightweight Windows overlay that **auto-counts world-pollution events in Roco 
 | `7` | ⏯️ 暂停 / 继续（启动请用主窗口按钮或悬浮窗右键菜单） |
 | `8` | ➕ 手动 +1 污染 |
 | `9` | ➖ 手动 -1 污染 |
+| `0` | 🪟 一键打开主页面 / 设置 |
 | `-` | 🔒 锁定 / 解锁悬浮窗 |
 
 > 全部热键都能在主窗口 **设置** 页自定义，支持小键盘（如 `num+`、`numpad7`）。
@@ -124,6 +125,15 @@ py run_app.py
 
 需要 **Python 3.10+** 和 Windows。首次运行 PaddleOCR 会加载本地模型目录 `paddleocr_models`。
 
+> 提示：公开仓库默认不提交体积较大的 `paddleocr_models/` 目录。  
+> 想从源码直接运行，请先把本地模型目录放到仓库根目录，或在生成后的 `pollution_config.json` 里改 `paddleocr_model_dir`。
+
+## 🗂️ 仓库说明 · Repo Layout
+
+- 仓库会提交 `pollution_config.example.json` 和 `pollution_count.example.json` 作为公开示例。
+- 真正运行时使用的 `pollution_config.json` / `pollution_count.json` 会在首次启动时自动在本地生成，不再建议提交到仓库。
+- 如果你是开发者，直接运行一次程序即可生成本地运行文件；也可以手动复制 example 文件后再调整。
+
 ---
 
 ## 🩺 启动诊断 · Startup Diagnostics
@@ -135,7 +145,7 @@ py run_app.py
 - 📁 解压路径含特殊字符 / 只读 → 换个正常目录
 - 💥 PyQt6 / PaddleOCR 原生库加载失败 → 看下面这个日志
 
-v1.2.3 起，任何启动阶段的异常都会自动写入 **`startup_error.log`**（exe 同级目录），包含 Python 版本、traceback、faulthandler 原生堆栈。把这个文件发给作者即可远程定位。
+v1.2.3 起，任何启动阶段的异常都会自动写入 **`startup_error.log`**（exe 同级目录），包含 Python 版本、traceback、faulthandler 原生堆栈。提 Issue 时附上这个文件，定位会快很多。
 
 ---
 
@@ -145,12 +155,26 @@ v1.2.3 起，任何启动阶段的异常都会自动写入 **`startup_error.log`
 - 🖼️ OCR 不准？先检查 **设置 → 分辨率** 是否和实际一致。
 - 🎯 程序只能隐藏 **系统光标**，无法隐藏游戏自绘光标。
 - ♻️ 升级后如果旧配置覆盖了新默认值，可手动删除 `pollution_config.json` 让程序重建。
+- 🤝 准备提交改动前，建议先看 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ---
 
 ## 📝 更新日志 · Changelog
 
-### 🆕 v1.2.3
+### 🆕 v1.2.5
+
+- 🖥️ **分辨率适配增强**：新增 `1280x960` 预设，并支持 `4K / 2K / 1080p` 这类常见写法自动识别
+- 📈 **累计逻辑调整**：顶部主数字改为累计污染数，跨天不会自动清零；每日明细仍保留在历史表
+- ✨ **异色后存档并清空**：可按单个精灵写入 `shiny_records` 后清空当前统计，方便继续刷下一只
+- 🧹 **今日清空更安全**：现在只会移除当天明细，并同步扣减累计，不再像“整档清零”那样容易误解
+
+### v1.2.4
+
+- 🪟 **一键打开主页面**：新增默认热键 `0`，随时拉起主窗口 / 设置
+- 🌍 **中文路径支持优化**：安装目录或 OCR 模型目录含中文时自动兼容
+- 🧭 **热键迁移补齐**：旧配置升级后会自动补出 `show_main`，避免隐藏旧键冲突
+
+### v1.2.3
 
 - 🩺 **启动诊断**：崩溃时自动写 `startup_error.log`，含 `faulthandler` 原生堆栈
 - 🧩 **OCR 别名表**：默认修复「曙光瑜瑜 → 噬光嗡嗡」，可自定义

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -55,10 +56,17 @@ HOTKEY_ACTIONS = [
     ("add", "+污（手动）"),
     ("sub", "-污（手动）"),
     ("lock", "锁定/解锁悬浮窗"),
-    ("show_main", "打开主窗口"),
+    ("show_main", "打开主页面"),
 ]
 
-BUILTIN_RESOLUTIONS = ["1280x720", "1920x1080", "2560x1440", "2560x1600_150缩放", "3840x2160"]
+BUILTIN_RESOLUTIONS = [
+    "1280x720",
+    "1280x960",
+    "1920x1080",
+    "2560x1440",
+    "2560x1600_150缩放",
+    "3840x2160",
+]
 
 
 class UpdateCheckWorker(QThread):
@@ -260,11 +268,11 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(4, 4, 4, 4)
         v.setSpacing(theme.SPACE_MD)
 
-        # 两张指标卡：今日总数 + 最近精灵
+        # 两张指标卡：累计总数 + 最近精灵
         tiles_row = QHBoxLayout()
         tiles_row.setSpacing(theme.SPACE_MD)
         self.tile_today_total = StatTile(
-            "今日总污染数", "0", icon="sparkle", accent=theme.FG_COUNT
+            "累计污染数", "0", icon="sparkle", accent=theme.FG_COUNT
         )
         self.tile_last_species = StatTile(
             "最近精灵", "无", icon="eye", accent=theme.FG_SPECIES
@@ -311,7 +319,7 @@ class MainWindow(QMainWindow):
         op_row = QHBoxLayout()
         self.btn_add_today = IconButton("添加或修改", icon="plus")
         self.btn_add_today.clicked.connect(self._on_add_today_species)
-        self.btn_reset_today = IconButton("清空今日统计", icon="trash", danger=True)
+        self.btn_reset_today = IconButton("清空今日明细", icon="trash", danger=True)
         self.btn_reset_today.clicked.connect(self._on_reset_today)
         op_row.addWidget(self.btn_add_today)
         op_row.addStretch(1)
@@ -325,7 +333,7 @@ class MainWindow(QMainWindow):
         r = QMessageBox.question(
             self,
             "确认",
-            "确定要清空今日所有污染统计吗？此操作不可撤销。",
+            "会移除今天这一天的统计明细，并同步扣掉当前累计。\n此操作不可撤销，确定继续吗？",
         )
         if r == QMessageBox.StandardButton.Yes:
             self.reset_today_requested.emit()
@@ -395,7 +403,7 @@ class MainWindow(QMainWindow):
         data_layout = QFormLayout(gb_data)
         self.btn_import_count = IconButton("导入旧版 count 文件", icon="refresh")
         self.btn_import_count.clicked.connect(self._on_import_count_file)
-        self.lbl_import_count = QLabel("选择旧版 pollution_count.json，替换到当前新版本统计；会自动备份现有数据。")
+        self.lbl_import_count = QLabel("选择旧版 pollution_count.json，按累计模式导入到当前统计；会自动备份现有数据，不保留按天拆分。")
         self.lbl_import_count.setWordWrap(True)
         self.lbl_import_count.setStyleSheet(
             f"color:{theme.FG_DIM};background:transparent;padding-left:6px;"
@@ -484,7 +492,8 @@ class MainWindow(QMainWindow):
             self,
             "确认导入旧版统计",
             "这会用你选择的旧版 count 文件替换当前新版本统计数据。\n"
-            "当前数据会先自动备份，然后再导入。\n\n"
+            "当前数据会先自动备份，然后再导入。\n"
+            "导入后会按累计模式处理，不保留按天记录。\n\n"
             f"文件：\n{file_path}",
         )
         if confirm != QMessageBox.StandardButton.Yes:
@@ -568,7 +577,7 @@ class MainWindow(QMainWindow):
 
         card1 = Card(padding=14)
         card1.body().addWidget(
-            SectionHeader("历史精灵累计", icon="chart", subtitle="双击修改累计次数")
+            SectionHeader("历史精灵累计", icon="chart", subtitle="双击修改累计次数；出异色后可单独存档清空")
         )
         self.tbl_species_total = QTableWidget(0, 2)
         self.tbl_species_total.setHorizontalHeaderLabels(["精灵", "累计次数"])
@@ -591,6 +600,9 @@ class MainWindow(QMainWindow):
         self.btn_add_total = IconButton("添加或修改", icon="plus")
         self.btn_add_total.clicked.connect(self._on_add_total_species)
         ops1.addWidget(self.btn_add_total)
+        self.btn_archive_total = IconButton("异色后存档并清空", icon="sparkle", danger=True)
+        self.btn_archive_total.clicked.connect(self._on_archive_total_species)
+        ops1.addWidget(self.btn_archive_total)
         ops1.addStretch(1)
         card1.body().addLayout(ops1)
 
@@ -703,6 +715,61 @@ class MainWindow(QMainWindow):
             return
         new_name, new_val, _ = res
         self._controller.set_species_total(new_name, new_val)
+
+    def _pick_species_for_archive(self) -> str:
+        if self.tbl_species_total.currentRow() >= 0:
+            item = self.tbl_species_total.item(self.tbl_species_total.currentRow(), 0)
+            if item is not None:
+                return item.text().strip()
+        if self._controller is None:
+            return ""
+        candidates = sorted(
+            {
+                name
+                for name, value in self._controller.data.species_total_counts.items()
+                if int(value) > 0
+            }
+        )
+        if not candidates:
+            return ""
+        text, ok = QInputDialog.getItem(
+            self,
+            "选择精灵",
+            "请选择要存档并清空的精灵：",
+            candidates,
+            0,
+            False,
+        )
+        if not ok:
+            return ""
+        return str(text or "").strip()
+
+    def _on_archive_total_species(self):
+        if self._controller is None:
+            return
+        name = self._pick_species_for_archive()
+        if not name:
+            QMessageBox.information(self, "提示", "当前没有可存档的精灵，或你还没选中目标精灵。")
+            return
+
+        total = int(self._controller.data.species_total_counts.get(name, 0))
+        today = int(self._controller.data.species_counts.get(name, 0))
+        confirm = QMessageBox.question(
+            self,
+            "确认存档并清空",
+            f"会把「{name}」当前累计写入 shiny_records，并把这个精灵从当前统计中清空。\n\n"
+            f"累计次数：{total}\n"
+            f"今日次数：{today}\n\n"
+            "确定继续吗？",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        ok, msg = self._controller.archive_and_clear_species(name)
+        if not ok:
+            QMessageBox.warning(self, "操作失败", msg)
+            return
+        QMessageBox.information(self, "已完成", msg)
 
     def _on_edit_daily_row(self, row: int, _col: int):
         if self._controller is None:

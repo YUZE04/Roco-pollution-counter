@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import shutil
 import time
@@ -10,7 +11,14 @@ from typing import Any, Dict
 
 from PyQt6.QtCore import QObject, QTimer
 
-from .paths import SAVE_FILE
+from .paths import (
+    RECORD_CSV,
+    RECORD_DIR,
+    RECORD_JSONL,
+    SAVE_EXAMPLE_NAME,
+    SAVE_FILE,
+    seed_runtime_file,
+)
 from .utils import aggregate_species_totals, clean_pet_name, today_str
 
 
@@ -59,6 +67,16 @@ class PollutionData(QObject):
             if not isinstance(d.get(key), dict):
                 d[key] = {}
 
+        daily_sum = 0
+        for day, value in list(d["daily_totals"].items()):
+            try:
+                clean_value = max(0, int(value))
+            except Exception:
+                clean_value = 0
+            d["daily_totals"][day] = clean_value
+            daily_sum += clean_value
+        d["count"] = max(int(d.get("count", 0)), daily_sum)
+
         d["last_species"] = str(d.get("last_species", "无") or "无")
 
         if not d["species_total_counts"]:
@@ -69,6 +87,11 @@ class PollutionData(QObject):
         return d
 
     def _load(self) -> Dict[str, Any]:
+        seed_runtime_file(
+            SAVE_FILE,
+            SAVE_EXAMPLE_NAME,
+            json.dumps(_empty_payload(), ensure_ascii=False, indent=2),
+        )
         if SAVE_FILE.exists():
             try:
                 d = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
@@ -98,6 +121,46 @@ class PollutionData(QObject):
         if not self._save_timer.isActive():
             self._save_timer.start(self.SAVE_THROTTLE_MS)
 
+    @staticmethod
+    def _collapse_imported_payload_to_cumulative(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """旧版 count 导入时统一折叠成“累计模式”，不保留按天拆分。"""
+        merged_totals: Dict[str, int] = {}
+        for source in (
+            payload.get("species_total_counts", {}),
+            payload.get("species_counts", {}),
+            aggregate_species_totals(payload.get("daily_species", {}), payload.get("species_counts", {})),
+        ):
+            if not isinstance(source, dict):
+                continue
+            for name, count in source.items():
+                clean_name = clean_pet_name(name)
+                try:
+                    value = max(0, int(count))
+                except Exception:
+                    value = 0
+                if not clean_name or clean_name == "未识别" or value <= 0:
+                    continue
+                merged_totals[clean_name] = max(int(merged_totals.get(clean_name, 0)), value)
+
+        collapsed_count = max(
+            int(payload.get("count", 0)),
+            sum(int(v) for v in merged_totals.values()),
+        )
+        last_species = str(payload.get("last_species", "无") or "无")
+        if not merged_totals:
+            last_species = "无"
+        elif clean_pet_name(last_species) not in merged_totals:
+            last_species = max(merged_totals.items(), key=lambda kv: (kv[1], kv[0]))[0]
+
+        return {
+            "count": collapsed_count,
+            "species_counts": {},
+            "daily_totals": {},
+            "daily_species": {},
+            "species_total_counts": merged_totals,
+            "last_species": last_species,
+        }
+
     def replace_from_file(self, source_path: str | Path) -> Dict[str, Any]:
         source = Path(source_path).expanduser()
         if not source.exists():
@@ -111,6 +174,7 @@ class PollutionData(QObject):
             raw = json.loads(source.read_text(encoding="utf-8-sig"))
 
         new_data = self._normalize_payload(raw)
+        new_data = self._collapse_imported_payload_to_cumulative(new_data)
 
         backup_path: Path | None = None
         if SAVE_FILE.exists():
@@ -125,6 +189,7 @@ class PollutionData(QObject):
 
         self._save_timer.stop()
         self._data = new_data
+        self._refresh_last_species()
         self._dirty = True
         self._flush()
 
@@ -133,16 +198,16 @@ class PollutionData(QObject):
             "backup_path": str(backup_path) if backup_path else "",
             "count": int(new_data.get("count", 0)),
             "species_total": len(new_data.get("species_total_counts", {})),
-            "day_total": len(new_data.get("daily_totals", {})),
+            "day_total": 0,
+            "import_mode": "cumulative_only",
         }
 
     # ---------- 属性 ----------
 
     @property
     def total_count(self) -> int:
-        """今日总污染数（跟随日期）。"""
-        day = today_str()
-        return int(self._data["daily_totals"].get(day, self._data.get("count", 0)))
+        """当前累计污染数。不会因为日期变化自动清零。"""
+        return int(self._data.get("count", 0))
 
     @property
     def species_counts(self) -> Dict[str, int]:
@@ -165,8 +230,63 @@ class PollutionData(QObject):
 
     def _ensure_today(self) -> None:
         day = today_str()
-        self._data["daily_totals"].setdefault(day, int(self._data.get("count", 0)))
+        self._data["daily_totals"].setdefault(day, 0)
         self._data["daily_species"].setdefault(day, {})
+
+    def _sync_today_species_cache(self) -> None:
+        day = today_str()
+        today_map = self._data.get("daily_species", {}).get(day, {})
+        if isinstance(today_map, dict):
+            self._data["species_counts"] = dict(today_map)
+        else:
+            self._data["species_counts"] = {}
+
+    def _refresh_last_species(self) -> None:
+        last = clean_pet_name(self._data.get("last_species", ""))
+        today_map = self.species_counts
+        total_map = self.species_total_counts
+        if last and last not in ("未识别", "无"):
+            if int(today_map.get(last, 0)) > 0 or int(total_map.get(last, 0)) > 0:
+                return
+        for source in (today_map, total_map):
+            positive = {k: int(v) for k, v in source.items() if int(v) > 0}
+            if positive:
+                self._data["last_species"] = max(
+                    positive.items(), key=lambda kv: (kv[1], kv[0])
+                )[0]
+                return
+        self._data["last_species"] = "无"
+
+    def _append_species_archive_record(self, record: Dict[str, Any]) -> None:
+        RECORD_DIR.mkdir(parents=True, exist_ok=True)
+        with RECORD_JSONL.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        csv_exists = RECORD_CSV.exists()
+        with RECORD_CSV.open("a", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            if not csv_exists:
+                writer.writerow(
+                    [
+                        "archived_at",
+                        "species",
+                        "species_total_count",
+                        "today_species_count",
+                        "removed_from_current_total",
+                        "last_species",
+                        "daily_breakdown_json",
+                    ]
+                )
+            writer.writerow(
+                [
+                    record["archived_at"],
+                    record["species"],
+                    record["species_total_count"],
+                    record["today_species_count"],
+                    record["removed_from_current_total"],
+                    record["last_species"],
+                    json.dumps(record["daily_breakdown"], ensure_ascii=False),
+                ]
+            )
 
     def increment(self, species: str) -> None:
         """命中一次污染。unknown 不计入总数，但精灵历史累计里也不记。"""
@@ -177,6 +297,7 @@ class PollutionData(QObject):
             # 保留上一只精灵；不增加计数；仅更新状态
             return
         self._data["last_species"] = name
+        self._data["count"] = int(self._data.get("count", 0)) + 1
         self._data["daily_totals"][day] = int(self._data["daily_totals"].get(day, 0)) + 1
         today_map = self._data["daily_species"].setdefault(day, {})
         today_map[name] = int(today_map.get(name, 0)) + 1
@@ -184,9 +305,7 @@ class PollutionData(QObject):
         stc = self._data.setdefault("species_total_counts", {})
         stc[name] = int(stc.get(name, 0)) + 1
         # 兼容旧字段
-        self._data["count"] = int(self._data["daily_totals"][day])
-        sc = self._data.setdefault("species_counts", {})
-        sc[name] = int(today_map[name])
+        self._sync_today_species_cache()
         self.save()
 
     def preferred_species(self) -> str:
@@ -222,14 +341,19 @@ class PollutionData(QObject):
         if today_map.get(name, 0) <= 0:
             return False
         today_map[name] = max(0, int(today_map.get(name, 0)) - 1)
+        if today_map[name] == 0:
+            today_map.pop(name, None)
         self._data["daily_totals"][day] = max(0, int(self._data["daily_totals"].get(day, 0)) - 1)
+        self._data["count"] = max(0, int(self._data.get("count", 0)) - 1)
         stc = self._data.setdefault("species_total_counts", {})
         if stc.get(name, 0) > 0:
             stc[name] = max(0, int(stc.get(name, 0)) - 1)
-        self._data["count"] = int(self._data["daily_totals"][day])
-        self._data.setdefault("species_counts", {})[name] = int(today_map[name])
+            if stc[name] == 0:
+                stc.pop(name, None)
+        self._sync_today_species_cache()
         # 把它记为"当前精灵"，连续手动±更顺手
         self._data["last_species"] = name
+        self._refresh_last_species()
         self.save()
         return True
 
@@ -248,18 +372,15 @@ class PollutionData(QObject):
             today_map.pop(name, None)
         # daily_totals 按差值同步
         self._data["daily_totals"][day] = max(0, int(self._data["daily_totals"].get(day, 0)) + delta)
+        self._data["count"] = max(0, int(self._data.get("count", 0)) + delta)
         # species_total_counts 按差值同步
         stc = self._data.setdefault("species_total_counts", {})
         stc[name] = max(0, int(stc.get(name, 0)) + delta)
         if stc[name] == 0:
             stc.pop(name, None)
         # 兼容字段
-        self._data["count"] = int(self._data["daily_totals"][day])
-        sc = self._data.setdefault("species_counts", {})
-        if value > 0:
-            sc[name] = value
-        else:
-            sc.pop(name, None)
+        self._sync_today_species_cache()
+        self._refresh_last_species()
         self.save()
 
     def set_species_total_count(self, species: str, value: int) -> None:
@@ -278,15 +399,94 @@ class PollutionData(QObject):
         if not day:
             return
         value = max(0, int(value))
-        self._data.setdefault("daily_totals", {})[day] = value
-        if day == today_str():
-            self._data["count"] = value
+        daily_totals = self._data.setdefault("daily_totals", {})
+        old = max(0, int(daily_totals.get(day, 0)))
+        daily_totals[day] = value
+        self._data["count"] = max(0, int(self._data.get("count", 0)) + (value - old))
         self.save()
 
     def reset_today(self) -> None:
         day = today_str()
-        self._data["daily_totals"][day] = 0
-        self._data["daily_species"][day] = {}
-        self._data["count"] = 0
-        self._data["species_counts"] = {}
+        today_total = int(self._data.get("daily_totals", {}).get(day, 0))
+        today_map = dict(self._data.get("daily_species", {}).get(day, {}))
+        if today_total <= 0 and not today_map:
+            return
+
+        stc = self._data.setdefault("species_total_counts", {})
+        for name, value in today_map.items():
+            try:
+                delta = max(0, int(value))
+            except Exception:
+                delta = 0
+            if delta <= 0:
+                continue
+            if name in stc:
+                stc[name] = max(0, int(stc.get(name, 0)) - delta)
+                if stc[name] == 0:
+                    stc.pop(name, None)
+
+        self._data["count"] = max(0, int(self._data.get("count", 0)) - today_total)
+        self._data.get("daily_totals", {}).pop(day, None)
+        self._data.get("daily_species", {}).pop(day, None)
+        self._sync_today_species_cache()
+        self._refresh_last_species()
         self.save(force=True)
+
+    def archive_and_clear_species(self, species: str) -> Dict[str, Any]:
+        name = clean_pet_name(species)
+        if not name or name == "未识别":
+            raise ValueError("精灵名字无效")
+
+        stc = self._data.setdefault("species_total_counts", {})
+        current_total = max(0, int(stc.get(name, 0)))
+        daily_species = self._data.setdefault("daily_species", {})
+        daily_totals = self._data.setdefault("daily_totals", {})
+        today = today_str()
+        today_count = 0
+        daily_breakdown: Dict[str, int] = {}
+        removed_from_current_total = 0
+
+        for day, species_map in list(daily_species.items()):
+            if not isinstance(species_map, dict):
+                continue
+            try:
+                removed = max(0, int(species_map.get(name, 0)))
+            except Exception:
+                removed = 0
+            if removed <= 0:
+                continue
+            daily_breakdown[day] = removed
+            removed_from_current_total += removed
+            if day == today:
+                today_count = removed
+            species_map.pop(name, None)
+            if not species_map:
+                daily_species.pop(day, None)
+            if day in daily_totals:
+                daily_totals[day] = max(0, int(daily_totals.get(day, 0)) - removed)
+                if daily_totals[day] == 0 and day not in daily_species:
+                    daily_totals.pop(day, None)
+
+        if current_total <= 0 and removed_from_current_total <= 0:
+            raise ValueError(f"「{name}」当前没有可存档的计数")
+
+        removed_from_current_total = removed_from_current_total or current_total
+        record = {
+            "archived_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "species": name,
+            "species_total_count": current_total or removed_from_current_total,
+            "today_species_count": today_count,
+            "removed_from_current_total": removed_from_current_total,
+            "last_species": self._data.get("last_species", "无"),
+            "daily_breakdown": daily_breakdown,
+        }
+
+        stc.pop(name, None)
+        self._data["count"] = max(
+            0, int(self._data.get("count", 0)) - removed_from_current_total
+        )
+        self._append_species_archive_record(record)
+        self._sync_today_species_cache()
+        self._refresh_last_species()
+        self.save(force=True)
+        return record

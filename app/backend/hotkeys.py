@@ -3,7 +3,7 @@
 设计要点：
 - 不使用 ``keyboard`` 全局钩子（曾经是鼠标卡顿的元凶）
 - 在后台线程按 30ms 轮询 ``GetAsyncKeyState``
-- 通过 Qt 信号把 add/sub/start/pause/lock 事件派发到主线程
+- 通过 Qt 信号把 add/sub/start/pause/lock/show_main 事件派发到主线程
 - 每个动作自带 400ms 去抖
 """
 

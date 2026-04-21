@@ -8,7 +8,7 @@ Packages:
   - paddleocr_models  目录
   - 图标 / 配置
 
-Output: dist/污染计数器v1.2.4/ 下会有 污染计数器v1.2.4.exe
+Output: dist/污染计数器v1.2.5/ 下会有 污染计数器v1.2.5.exe
 """
 
 from PyInstaller.utils.hooks import collect_all
@@ -21,8 +21,8 @@ datas = [
     ('1.py', '.'),                               # OCR 动态加载用
     ('paddleocr_models', 'paddleocr_models'),    # OCR 模型
     ('roco_counter_icon.ico', '.'),
-    ('pollution_config.json', '.'),
-    ('pollution_count.json', '.'),
+    ('pollution_config.example.json', '.'),
+    ('pollution_count.example.json', '.'),
     ('version.json', '.'),
 ]
 
@@ -77,7 +77,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='污染计数器v1.2.4',
+    name='污染计数器v1.2.5',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -99,5 +99,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='污染计数器v1.2.4',
+    name='污染计数器v1.2.5',
 )

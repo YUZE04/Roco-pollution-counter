@@ -26,6 +26,7 @@ class AppController(QObject):
     running_changed = pyqtSignal(bool)
     paused_changed = pyqtSignal(bool)
     locked_changed = pyqtSignal(bool)
+    show_main_requested = pyqtSignal()
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -175,7 +176,7 @@ class AppController(QObject):
     def reset_today(self) -> None:
         self._data.reset_today()
         self.data_changed.emit()
-        self.status_text_changed.emit("今日统计已清空")
+        self.status_text_changed.emit("今日明细已清空")
 
     def import_count_file(self, file_path: str) -> tuple[bool, str]:
         try:
@@ -186,13 +187,13 @@ class AppController(QObject):
             return False, f"导入失败：{e}"
 
         self.data_changed.emit()
-        self.status_text_changed.emit("已导入旧版统计")
+        self.status_text_changed.emit("已导入旧版统计（累计模式）")
 
         summary = (
             f"已导入：{result['source_path']}\n"
             f"总污染数：{result['count']}\n"
             f"累计精灵条目：{result['species_total']}\n"
-            f"每日记录数：{result['day_total']}"
+            "导入方式：累计模式（不按天拆分）"
         )
         if result.get("backup_path"):
             summary += f"\n已备份当前数据到：{result['backup_path']}"
@@ -262,6 +263,23 @@ class AppController(QObject):
         self._data.set_species_total_count(name, 0)
         self.data_changed.emit()
         self.status_text_changed.emit(f"已删除累计 [{name}]")
+
+    def archive_and_clear_species(self, name: str) -> tuple[bool, str]:
+        try:
+            record = self._data.archive_and_clear_species(name)
+        except Exception as e:
+            return False, str(e)
+
+        self.data_changed.emit()
+        self.status_text_changed.emit(f"已存档并清空 [{record['species']}]")
+        message = (
+            f"已存档：{record['species']}\n"
+            f"累计次数：{record['species_total_count']}\n"
+            f"今日次数：{record['today_species_count']}\n"
+            f"移出当前累计：{record['removed_from_current_total']}\n"
+            f"存档时间：{record['archived_at']}"
+        )
+        return True, message
 
     # ---- 识别游戏窗口 ----
 
@@ -357,6 +375,8 @@ class AppController(QObject):
                 self.status_text_changed.emit("请先在主窗口点击「开始监测」")
         elif action == "lock":
             self.toggle_lock()
+        elif action == "show_main":
+            self.show_main_requested.emit()
 
     # ---------- 退出 ----------
 

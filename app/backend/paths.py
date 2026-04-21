@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -13,6 +14,8 @@ DATA_DIR = RUNTIME_DIR
 CONFIG_FILE = DATA_DIR / "pollution_config.json"
 SAVE_FILE = DATA_DIR / "pollution_count.json"
 OCR_POSITION_FILE = DATA_DIR / "ocr_capture_positions.json"
+CONFIG_EXAMPLE_NAME = "pollution_config.example.json"
+SAVE_EXAMPLE_NAME = "pollution_count.example.json"
 
 RECORD_DIR = DATA_DIR / "records"
 RECORD_JSONL = RECORD_DIR / "shiny_records.jsonl"
@@ -30,6 +33,33 @@ def resolve_resource_path(name: str) -> Path:
         if candidate.exists():
             return candidate
     return Path(name)
+
+
+def seed_runtime_file(target: Path, example_name: str, fallback_text: str | None = None) -> None:
+    """若运行时文件缺失，则优先用仓库/打包内的 example 文件初始化。"""
+    if target.exists():
+        return
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return
+
+    example = resolve_resource_path(example_name)
+    try:
+        if example.exists() and example.resolve() != target.resolve():
+            shutil.copy2(example, target)
+            return
+    except Exception:
+        pass
+
+    if fallback_text is None:
+        return
+
+    try:
+        target.write_text(fallback_text, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def find_icon() -> Path | None:

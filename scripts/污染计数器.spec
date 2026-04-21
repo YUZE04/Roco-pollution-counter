@@ -4,8 +4,8 @@ from PyInstaller.utils.hooks import collect_all
 datas = [
     ('paddleocr_models', 'paddleocr_models'),
     ('roco_counter_icon.ico', '.'),
-    ('pollution_config.json', '.'),
-    ('pollution_count.json', '.'),
+    ('pollution_config.example.json', '.'),
+    ('pollution_count.example.json', '.'),
 ]
 binaries = []
 hiddenimports = ['imagesize', 'pyclipper', 'pypdfium2', 'bidi.algorithm', 'shapely', 'filelock', 'ruamel.yaml']

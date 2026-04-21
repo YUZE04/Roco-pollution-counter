@@ -10,6 +10,8 @@ from cx_Freeze import Executable, setup
 REPO_ROOT = Path(__file__).resolve().parent
 SOURCE_FILE = REPO_ROOT / "1.py"
 ICON_FILE = REPO_ROOT / "roco_counter_icon.ico"
+CONFIG_EXAMPLE_FILE = REPO_ROOT / "pollution_config.example.json"
+COUNT_EXAMPLE_FILE = REPO_ROOT / "pollution_count.example.json"
 
 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
@@ -127,8 +129,8 @@ BUILD_EXE_OPTIONS = {
     ],
     "include_files": [
         (str(ICON_FILE), "roco_counter_icon.ico"),
-        (str(REPO_ROOT / "pollution_config.json"), "pollution_config.json"),
-        (str(REPO_ROOT / "pollution_count.json"), "pollution_count.json"),
+        (str(CONFIG_EXAMPLE_FILE), "pollution_config.example.json"),
+        (str(COUNT_EXAMPLE_FILE), "pollution_count.example.json"),
         *build_raw_runtime_entries(),
     ],
     "excludes": [

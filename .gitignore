@@ -3,6 +3,7 @@ __pycache__/
 *.log
 records/
 paddleocr_models/
+pollution_config.json
 pollution_count.json
 ocr_capture_positions.json
 dist/
@@ -31,3 +32,16 @@ config/
 
 # 录屏脚本个人用，不入库
 docs/录屏脚本*.md
+
+# 仓库只保留示例文件；真实运行配置/数据在本地自动生成
+!pollution_config.example.json
+!pollution_count.example.json
+
+# 本地临时宏脚本状态
+.runtime_send_n.pid
+.runtime_send_n.stop
+.runtime_send_n.log
+
+# 版本一次性的交付/发布清单改为本地使用，不入公开仓库
+DELIVERY_CHECKLIST_*.md
+RELEASE_v*.md

@@ -65,8 +65,14 @@ def check_paths():
     checks = [
         ("app 目录", Path("app").is_dir()),
         ("paddleocr_models 目录", Path("paddleocr_models").is_dir()),
-        ("pollution_config.json", Path("pollution_config.json").exists()),
-        ("pollution_count.json", Path("pollution_count.json").exists()),
+        (
+            "pollution_config(.example).json",
+            Path("pollution_config.json").exists() or Path("pollution_config.example.json").exists(),
+        ),
+        (
+            "pollution_count(.example).json",
+            Path("pollution_count.json").exists() or Path("pollution_count.example.json").exists(),
+        ),
         ("version.json", Path("version.json").exists()),
     ]
     

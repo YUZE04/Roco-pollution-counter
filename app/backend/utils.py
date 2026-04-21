@@ -7,6 +7,17 @@ import time
 from typing import Dict, Optional
 
 _SHIGUANG_SECOND_CHAR = "光"
+_RESOLUTION_ALIASES = {
+    "4k": "3840x2160",
+    "uhd": "3840x2160",
+    "2160p": "3840x2160",
+    "2k": "2560x1440",
+    "qhd": "2560x1440",
+    "1440p": "2560x1440",
+    "fhd": "1920x1080",
+    "1080p": "1920x1080",
+    "720p": "1280x720",
+}
 
 
 def today_str() -> str:
@@ -120,8 +131,18 @@ def scale_region_pack(region_pack: dict, scale_x: float, scale_y: float) -> dict
     }
 
 
+def normalize_resolution_label(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    clean = raw.lower().replace(" ", "").replace("×", "x")
+    clean = clean.split("_")[0]
+    return _RESOLUTION_ALIASES.get(clean, raw)
+
+
 def parse_resolution_text(text: str) -> tuple[int, int]:
-    m = re.match(r"(\d+)\s*[x×]\s*(\d+)", str(text or ""))
+    normalized = normalize_resolution_label(text)
+    m = re.match(r"(\d+)\s*[x×]\s*(\d+)", str(normalized or ""))
     if m:
         return int(m.group(1)), int(m.group(2))
     return 2560, 1600
@@ -143,7 +164,9 @@ def apply_resolution_preset(
         当 apply_to_cfg=True 时返回模式描述 (str)
         当 apply_to_cfg=False 时返回 (模式, 基础区域) 元组
     """
-    preset = str(preset or "").strip() or cfg.get("base_resolution", "2560x1600_150缩放")
+    preset = normalize_resolution_label(preset) or str(
+        cfg.get("base_resolution", "2560x1600_150缩放")
+    ).strip()
     presets = cfg.get("resolution_presets", {}) or {}
     base_regions = {}
     
@@ -190,5 +213,6 @@ def build_builtin_resolution_presets() -> dict:
         "2560x1440": dict(reference_pack),
         "2560x1600_150缩放": dict(reference_pack),
         "1280x720": scale_region_pack(reference_pack, 0.5, 0.5),
+        "1280x960": scale_region_pack(reference_pack, 0.5, 0.5),
         "3840x2160": scale_region_pack(reference_pack, 1.5, 1.5),
     }
